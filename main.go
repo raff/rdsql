@@ -77,6 +77,7 @@ func main() {
 	flag.StringVar(&profile, "profile", profile, "AWS profile")
 
 	debug := flag.Bool("debug", false, "enabled debugging")
+	verbose := flag.Bool("verbose", false, "log statements before execution")
 	elapsed := flag.Bool("t", false, "print elapsed time")
 	csv := flag.Bool("csv", false, "print output as csv")
 	timeout := flag.Duration("timeout", 5*time.Minute, "context timeout")
@@ -155,7 +156,7 @@ func main() {
 		return
 	})
 
-	var cmd string
+	var stmt string
 	var multi bool
 
 	prompt := map[bool]string{
@@ -186,28 +187,32 @@ func main() {
 		if multi == false {
 			if l == "[[[" {
 				multi = true
-				cmd = ""
+				stmt = ""
 				continue
 			} else {
-				cmd = l
+				stmt = l
 			}
 		} else {
 			if l == "]]]" {
 				multi = false
 			} else {
-				cmd += " " + l
+				stmt += " " + strings.TrimSpace(l)
 				continue
 			}
 		}
 
-		cmd = strings.TrimSpace(cmd)
+		stmt = strings.TrimSpace(stmt)
 		if len(l) == 0 {
 			continue
 		}
 
-		line.AppendHistory(cmd)
+		line.AppendHistory(stmt)
 
-		err = exec(client, cmd, *elapsed, *csv, *timeout, c)
+		if *verbose {
+			fmt.Println("--", stmt)
+		}
+
+		err = exec(client, stmt, *elapsed, *csv, *timeout, c)
 		if err != nil {
 			fmt.Println(err)
 		}
