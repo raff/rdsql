@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -80,6 +81,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "log statements before execution")
 	elapsed := flag.Bool("t", false, "print elapsed time")
 	csv := flag.Bool("csv", false, "print output as csv")
+	trans := flag.Bool("transaction", false, "wrap full session in a remote transaction")
 	timeout := flag.Duration("timeout", 5*time.Minute, "context timeout")
 
 	flag.Parse()
@@ -101,21 +103,40 @@ func main() {
 		log.Fatal("missing secret ARN")
 	}
 
-	//if dbName == "" {
-	//        log.Fatal("missing database")
-	//}
-
 	client := rdsdata.New(awscfg)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	defer signal.Stop(c)
 
+	var transactionId string
+	var dberr error
+
+	if *trans {
+		if tid, err := beginTransaction(client, *timeout, c); err != nil {
+			fmt.Println("BEGIN TRANSACTION:", err)
+			return
+		} else {
+			fmt.Println("BEGIN TRANSACTION:", tid)
+			transactionId = tid
+		}
+
+		defer func() {
+			res, err := endTransaction(client, transactionId, dberr == nil, *timeout, c)
+			if err != nil {
+				fmt.Println("END TRANSACTION:", err)
+			} else {
+				fmt.Println("END TRANSACTION:", res)
+			}
+		}()
+	}
+
 	if flag.NArg() != 0 {
 		stmt := strings.Join(flag.Args(), " ")
 
-		if err := exec(client, stmt, *elapsed, *csv, *timeout, c); err != nil {
-			fmt.Println(err)
+		dberr = exec(client, stmt, transactionId, *elapsed, *csv, *debug, *timeout, c)
+		if dberr != nil {
+			fmt.Println(dberr)
 		}
 
 		return
@@ -158,6 +179,7 @@ func main() {
 
 	var stmt string
 	var multi bool
+	var script bool
 
 	prompt := map[bool]string{
 		false: "> ",
@@ -167,6 +189,7 @@ func main() {
 	if _, err := liner.TerminalMode(); err != nil {
 		prompt[false] = ""
 		prompt[true] = ""
+		script = true
 	}
 
 	for {
@@ -212,14 +235,35 @@ func main() {
 			fmt.Println("--", stmt)
 		}
 
-		err = exec(client, stmt, *elapsed, *csv, *timeout, c)
-		if err != nil {
-			fmt.Println(err)
+		dberr = exec(client, stmt, transactionId, *elapsed, *csv, *debug, *timeout, c)
+		if dberr != nil {
+			fmt.Println(dberr)
+
+			if script { // for scripts, break at first error
+				break
+			}
 		}
 	}
 }
 
-func exec(client *rdsdata.Client, stmt string, elapsed, asCsv bool, timeout time.Duration, c chan os.Signal) error {
+func makeContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx := context.Background()
+	if timeout > 0 {
+		return context.WithTimeout(ctx, timeout)
+	}
+
+	return context.WithCancel(ctx)
+}
+
+func stringOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return aws.String(s)
+}
+
+func exec(client *rdsdata.Client, stmt, transactionId string, elapsed, asCsv, debug bool, timeout time.Duration, c chan os.Signal) error {
 	start := time.Now()
 
 	var cw *csv.Writer
@@ -228,15 +272,7 @@ func exec(client *rdsdata.Client, stmt string, elapsed, asCsv bool, timeout time
 		defer cw.Flush()
 	}
 
-	ctx := context.Background()
-	var cancel func()
-
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-	} else {
-		ctx, cancel = context.WithCancel(ctx)
-	}
-
+	ctx, cancel := makeContext(timeout)
 	defer cancel()
 
 	go func() {
@@ -254,6 +290,7 @@ func exec(client *rdsdata.Client, stmt string, elapsed, asCsv bool, timeout time
 		SecretArn:             aws.String(secretArn),
 		Sql:                   aws.String(stmt),
 		IncludeResultMetadata: aws.Bool(true),
+		TransactionId:         stringOrNil(transactionId),
 
 		// ContinueAfterTimeout
 		// IncludeResultMetadata
@@ -269,6 +306,13 @@ func exec(client *rdsdata.Client, stmt string, elapsed, asCsv bool, timeout time
 
 	if err != nil {
 		return err
+	}
+
+	if debug {
+		if dmesg, err := json.MarshalIndent(res, "", " "); err == nil {
+			fmt.Println("RESULT")
+			fmt.Println(string(dmesg))
+		}
 	}
 
 	nr := aws.Int64Value(res.NumberOfRecordsUpdated)
@@ -325,6 +369,72 @@ func exec(client *rdsdata.Client, stmt string, elapsed, asCsv bool, timeout time
 
 	fmt.Println("Total", len(res.Records))
 	return nil
+}
+
+func beginTransaction(client *rdsdata.Client, timeout time.Duration, c chan os.Signal) (string, error) {
+	ctx, cancel := makeContext(timeout)
+	defer cancel()
+
+	go func() {
+		select {
+		case <-c:
+			cancel()
+
+		case <-ctx.Done():
+		}
+	}()
+
+	res, err := client.BeginTransactionRequest(&rdsdata.BeginTransactionInput{
+		Database:    aws.String(dbName),
+		ResourceArn: aws.String(resourceArn),
+		SecretArn:   aws.String(secretArn),
+	}).Send(ctx)
+
+	if err != nil {
+		return "", err
+	}
+
+	return aws.StringValue(res.TransactionId), nil
+}
+
+func endTransaction(client *rdsdata.Client, tid string, commit bool, timeout time.Duration, c chan os.Signal) (string, error) {
+	ctx, cancel := makeContext(timeout)
+	defer cancel()
+
+	go func() {
+		select {
+		case <-c:
+			cancel()
+
+		case <-ctx.Done():
+		}
+	}()
+
+	if commit {
+		res, err := client.CommitTransactionRequest(&rdsdata.CommitTransactionInput{
+			ResourceArn:   aws.String(resourceArn),
+			SecretArn:     aws.String(secretArn),
+			TransactionId: aws.String(tid),
+		}).Send(ctx)
+
+		if err != nil {
+			return "", err
+		}
+
+		return aws.StringValue(res.TransactionStatus), nil
+	} else { // rollback
+		res, err := client.RollbackTransactionRequest(&rdsdata.RollbackTransactionInput{
+			ResourceArn:   aws.String(resourceArn),
+			SecretArn:     aws.String(secretArn),
+			TransactionId: aws.String(tid),
+		}).Send(ctx)
+
+		if err != nil {
+			return "", err
+		}
+
+		return aws.StringValue(res.TransactionStatus), nil
+	}
 }
 
 func format(f rdsdata.Field) string {
