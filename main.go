@@ -25,10 +25,11 @@ var (
 	resourceArn = os.Getenv("RDS_RESOURCE")
 	secretArn   = os.Getenv("RDS_SECRET")
 	dbName      = os.Getenv("RDS_DATABASE")
-        profile string
+	profile     string
 
 	keywords = []string{
 		"BEGIN",
+		"START",
 		"COMMIT",
 		"TRANSACTION",
 		"END",
@@ -63,17 +64,17 @@ var (
 func init() {
 	sort.Strings(keywords)
 
-        profile = os.Getenv("RDS_PROFILE")
-        if profile == "" {
-            profile = os.Getenv("AWS_PROFILE")
-        }
+	profile = os.Getenv("RDS_PROFILE")
+	if profile == "" {
+		profile = os.Getenv("AWS_PROFILE")
+	}
 }
 
 func main() {
 	flag.StringVar(&resourceArn, "resource", resourceArn, "resource ARN")
 	flag.StringVar(&secretArn, "secret", secretArn, "resource secret")
 	flag.StringVar(&dbName, "database", dbName, "database")
-        flag.StringVar(&profile, "profile", profile, "AWS profile")
+	flag.StringVar(&profile, "profile", profile, "AWS profile")
 
 	debug := flag.Bool("debug", false, "enabled debugging")
 	elapsed := flag.Bool("t", false, "print elapsed time")
