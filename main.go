@@ -87,6 +87,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "log statements before execution")
 	csv := flag.Bool("csv", false, "print output as csv")
 	trans := flag.Bool("transaction", false, "wrap full session in a remote transaction")
+	fparams := flag.String("params", "", "query parameters (comma separated list of name=value pair)")
 
 	flag.Parse()
 
@@ -106,6 +107,8 @@ func main() {
 	if secretArn == "" {
 		log.Fatal("missing secret ARN")
 	}
+
+	params := parseParams(*fparams)
 
 	client := rdsdata.New(awscfg)
 
@@ -138,7 +141,7 @@ func main() {
 	if flag.NArg() != 0 {
 		stmt := strings.Join(flag.Args(), " ")
 
-		dberr = exec(client, stmt, transactionId, *csv, c)
+		dberr = exec(client, stmt, params, transactionId, *csv, c)
 		if dberr != nil {
 			fmt.Println(dberr)
 		}
@@ -239,7 +242,7 @@ func main() {
 			fmt.Println("--", stmt)
 		}
 
-		dberr = exec(client, stmt, transactionId, *csv, c)
+		dberr = exec(client, stmt, params, transactionId, *csv, c)
 		if dberr != nil {
 			fmt.Println(dberr)
 
@@ -278,7 +281,7 @@ func stringOrNil(s string) *string {
 // parameters could be passed as :par1, :par2... in the SQL statement
 // with associated parameter list in the request
 
-func exec(client *rdsdata.Client, stmt, transactionId string, asCsv bool, c chan os.Signal) error {
+func exec(client *rdsdata.Client, stmt string, params []rdsdata.SqlParameter, transactionId string, asCsv bool, c chan os.Signal) error {
 	start := time.Now()
 
 	var cw *csv.Writer
@@ -304,6 +307,7 @@ func exec(client *rdsdata.Client, stmt, transactionId string, asCsv bool, c chan
 		ResourceArn:           aws.String(resourceArn),
 		SecretArn:             aws.String(secretArn),
 		Sql:                   aws.String(stmt),
+		Parameters:            params,
 		IncludeResultMetadata: aws.Bool(true),
 		TransactionId:         stringOrNil(transactionId),
 
@@ -482,4 +486,32 @@ func format(f rdsdata.Field) string {
 	}
 
 	return f.String()
+}
+
+func parseParams(s string) []rdsdata.SqlParameter {
+	if len(s) == 0 {
+		return nil
+	}
+
+	parts := strings.Split(s, ",")
+	params := make([]rdsdata.SqlParameter, len(parts))
+
+	for i, p := range parts {
+		nv := strings.SplitN(p, "=", 2)
+		if len(nv) != 2 {
+			log.Fatal("invalid name=value pair")
+		}
+
+		var field rdsdata.Field
+
+		if len(nv[1]) == 0 {
+			field.IsNull = aws.Bool(true)
+		} else {
+			field.StringValue = aws.String(nv[1])
+		}
+
+		params[i] = rdsdata.SqlParameter{Name: aws.String(nv[0]), Value: &field}
+	}
+
+	return params
 }
