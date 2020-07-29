@@ -63,6 +63,8 @@ var (
 		"DESC",
 		"CURRENT_TIMESTAMP",
 		"DESCRIBE",
+		"SHOW",
+		"TABLES",
 	}
 )
 
@@ -144,6 +146,7 @@ func main() {
 		dberr = exec(client, stmt, params, transactionId, *csv, c)
 		if dberr != nil {
 			fmt.Println(dberr)
+			fmt.Println("STMT:", stmt)
 		}
 
 		return
@@ -245,6 +248,7 @@ func main() {
 		dberr = exec(client, stmt, params, transactionId, *csv, c)
 		if dberr != nil {
 			fmt.Println(dberr)
+			fmt.Println("STMT:", stmt)
 
 			if script { // for scripts, break at first error
 				break
