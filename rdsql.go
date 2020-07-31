@@ -72,13 +72,13 @@ func GetRDSClient(config aws.Config, res, secret, db string) *RDSClient {
 }
 
 // BeginTransaction executes rdsdata BeginTransactionRequest
-func (c *RDSClient) BeginTransaction(ch chan os.Signal) (string, error) {
+func (c *RDSClient) BeginTransaction(terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout)
 	defer cancel()
 
 	go func() {
 		select {
-		case <-ch:
+		case <-terminate:
 			cancel()
 
 		case <-ctx.Done():
@@ -99,13 +99,13 @@ func (c *RDSClient) BeginTransaction(ch chan os.Signal) (string, error) {
 }
 
 // CommitTransaction executes rdsdata CommitTransactionRequest
-func (c *RDSClient) CommitTransaction(tid string, ch chan os.Signal) (string, error) {
+func (c *RDSClient) CommitTransaction(tid string, terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout)
 	defer cancel()
 
 	go func() {
 		select {
-		case <-ch:
+		case <-terminate:
 			cancel()
 
 		case <-ctx.Done():
@@ -122,13 +122,13 @@ func (c *RDSClient) CommitTransaction(tid string, ch chan os.Signal) (string, er
 }
 
 // RollbackTransaction executes rdsdata RollbackTransactionRequest
-func (c *RDSClient) RollbackTransaction(tid string, ch chan os.Signal) (string, error) {
+func (c *RDSClient) RollbackTransaction(tid string, terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout)
 	defer cancel()
 
 	go func() {
 		select {
-		case <-ch:
+		case <-terminate:
 			cancel()
 
 		case <-ctx.Done():
@@ -145,12 +145,12 @@ func (c *RDSClient) RollbackTransaction(tid string, ch chan os.Signal) (string, 
 }
 
 // EndTransaction executes either a commit or a rollback request
-func (c *RDSClient) EndTransaction(tid string, commit bool, ch chan os.Signal) (string, error) {
+func (c *RDSClient) EndTransaction(tid string, commit bool, terminate chan os.Signal) (string, error) {
 	if commit {
-		return c.CommitTransaction(tid, ch)
+		return c.CommitTransaction(tid, terminate)
 	}
 
-	return c.RollbackTransaction(tid, ch)
+	return c.RollbackTransaction(tid, terminate)
 }
 
 // Results is an alias for *rdsdata.ExecuteStatementOutput
@@ -166,13 +166,13 @@ type Field = rdsdata.Field
 //
 // parameters could be passed as :par1, :par2... in the SQL statement
 // with associated parameter list in the request
-func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{}, transactionId string, ch chan os.Signal) (Results, error) {
+func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{}, transactionId string, terminate chan os.Signal) (Results, error) {
 	ctx, cancel := makeContext(c.Timeout)
 	defer cancel()
 
 	go func() {
 		select {
-		case <-ch:
+		case <-terminate:
 			cancel()
 
 		case <-ctx.Done():
@@ -197,6 +197,12 @@ func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{},
 	}
 
 	return res.ExecuteStatementOutput, nil
+}
+
+// Ping verifies the connection to the database is still alive.
+func (c *RDSClient) Ping(terminate chan os.Signal) error {
+	_, err := c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
+	return err
 }
 
 func makeParams(params map[string]interface{}) []rdsdata.SqlParameter {

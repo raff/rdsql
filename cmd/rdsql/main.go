@@ -100,6 +100,10 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	defer signal.Stop(c)
 
+	if err := client.Ping(c); err != nil {
+		log.Fatalf("Cannot connect to database: %v", err)
+	}
+
 	var transactionId string
 	var dberr error
 	var res rdsql.Results
