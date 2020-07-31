@@ -118,7 +118,7 @@ func (c *RDSClient) CommitTransaction(tid string, ch chan os.Signal) (string, er
 	return aws.StringValue(res.TransactionStatus), err
 }
 
-// CommitTransaction executes rdsdata RollbackTransactionRequest
+// RollbackTransaction executes rdsdata RollbackTransactionRequest
 func (c *RDSClient) RollbackTransaction(tid string, ch chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout)
 	defer cancel()

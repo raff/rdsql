@@ -107,16 +107,15 @@ func main() {
 	if *trans {
 		shouldPrint := printElapsed("BEGIN TRANSACTION:", elapsed)
 		tid, err := client.BeginTransaction(c)
+		shouldPrint()
 
 		if err != nil {
 			fmt.Println("BEGIN TRANSACTION:", err)
 			return
-		} else {
-			fmt.Println("BEGIN TRANSACTION:", tid)
-			transactionId = tid
 		}
 
-		shouldPrint()
+		fmt.Println("BEGIN TRANSACTION:", tid)
+		transactionId = tid
 
 		defer func() {
 			shouldPrint := printElapsed("END TRANSACTION:", elapsed)
