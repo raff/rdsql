@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
@@ -16,10 +15,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/external"
-	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
 
 	"github.com/peterh/liner"
+	"github.com/raff/rdsql"
 )
 
 var (
@@ -93,26 +91,10 @@ func main() {
 
 	flag.Parse()
 
-	awscfg, err := external.LoadDefaultAWSConfig(external.WithSharedConfigProfile(profile))
-	if err != nil {
-		log.Fatalf("AWS configuration: %v", err)
-	}
-
-	if debug {
-		awscfg.LogLevel = aws.LogDebugWithSigning // aws.LogDebug
-	}
-
-	if resourceArn == "" {
-		log.Fatal("missing resource ARN")
-	}
-
-	if secretArn == "" {
-		log.Fatal("missing secret ARN")
-	}
+	awscfg := rdsql.GetAWSConfig(profile, debug)
+	client := rdsql.GetRDSClient(awscfg, resourceArn, secretArn, dbName)
 
 	params := parseParams(*fparams)
-
-	client := rdsdata.New(awscfg)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
@@ -120,9 +102,13 @@ func main() {
 
 	var transactionId string
 	var dberr error
+	var res rdsql.Results
 
 	if *trans {
-		if tid, err := beginTransaction(client, c); err != nil {
+		shouldPrint := printElapsed("BEGIN TRANSACTION:", elapsed)
+		tid, err := client.BeginTransaction(c)
+
+		if err != nil {
 			fmt.Println("BEGIN TRANSACTION:", err)
 			return
 		} else {
@@ -130,25 +116,35 @@ func main() {
 			transactionId = tid
 		}
 
+		shouldPrint()
+
 		defer func() {
-			res, err := endTransaction(client, transactionId, dberr == nil, c)
-			if err != nil {
+			shouldPrint := printElapsed("END TRANSACTION:", elapsed)
+
+			if res, err := client.EndTransaction(transactionId, dberr == nil, c); err != nil {
 				fmt.Println("END TRANSACTION:", err)
 			} else {
 				fmt.Println("END TRANSACTION:", res)
 			}
+
+			shouldPrint()
 		}()
 	}
 
 	if flag.NArg() != 0 {
 		stmt := strings.Join(flag.Args(), " ")
 
-		dberr = exec(client, stmt, params, transactionId, *csv, c)
+		shouldPrint := printElapsed("EXEC:", elapsed)
+		res, dberr = client.ExecuteStatement(stmt, params, transactionId, c)
+		shouldPrint()
+
 		if dberr != nil {
 			fmt.Println(dberr)
 			fmt.Println("STMT:", stmt)
+			return
 		}
 
+		printResults(res, *csv)
 		return
 	}
 
@@ -245,7 +241,10 @@ func main() {
 			fmt.Println("--", stmt)
 		}
 
-		dberr = exec(client, stmt, params, transactionId, *csv, c)
+		shouldPrint := printElapsed("EXEC:", elapsed)
+		res, dberr = client.ExecuteStatement(stmt, params, transactionId, c)
+		shouldPrint()
+
 		if dberr != nil {
 			fmt.Println(dberr)
 			fmt.Println("STMT:", stmt)
@@ -253,82 +252,29 @@ func main() {
 			if script { // for scripts, break at first error
 				break
 			}
+		} else {
+			printResults(res, *csv)
 		}
 	}
 }
 
-func makeContext(timeout time.Duration) (context.Context, context.CancelFunc) {
-	ctx := context.Background()
-	if timeout > 0 {
-		return context.WithTimeout(ctx, timeout)
+func printElapsed(prefix string, print bool) func() {
+	if !print {
+		return func() {}
 	}
 
-	return context.WithCancel(ctx)
-}
-
-func printElapsed(prefix string) func() {
 	t := time.Now()
 
 	return func() {
-		fmt.Println(prefix, "Elapsed:", time.Since(t))
+		fmt.Println(prefix, "Elapsed:", time.Since(t).Truncate(time.Millisecond))
 	}
 }
 
-func stringOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-
-	return aws.String(s)
-}
-
-// parameters could be passed as :par1, :par2... in the SQL statement
-// with associated parameter list in the request
-
-func exec(client *rdsdata.Client, stmt string, params []rdsdata.SqlParameter, transactionId string, asCsv bool, c chan os.Signal) error {
-	start := time.Now()
-
+func printResults(res rdsql.Results, asCsv bool) {
 	var cw *csv.Writer
 	if asCsv {
 		cw = csv.NewWriter(os.Stdout)
 		defer cw.Flush()
-	}
-
-	ctx, cancel := makeContext(timeout)
-	defer cancel()
-
-	go func() {
-		select {
-		case <-c:
-			cancel()
-
-		case <-ctx.Done():
-		}
-	}()
-
-	res, err := client.ExecuteStatementRequest(&rdsdata.ExecuteStatementInput{
-		Database:              aws.String(dbName),
-		ResourceArn:           aws.String(resourceArn),
-		SecretArn:             aws.String(secretArn),
-		Sql:                   aws.String(stmt),
-		Parameters:            params,
-		IncludeResultMetadata: aws.Bool(true),
-		TransactionId:         stringOrNil(transactionId),
-
-		// ContinueAfterTimeout
-		// IncludeResultMetadata
-		// Schema
-		// Parameters
-		// ResultSetOptions
-		// TransactionId
-	}).Send(ctx)
-
-	if elapsed {
-		fmt.Println("EXEC Elapsed:", time.Since(start))
-	}
-
-	if err != nil {
-		return err
 	}
 
 	if debug {
@@ -345,7 +291,7 @@ func exec(client *rdsdata.Client, stmt string, params []rdsdata.SqlParameter, tr
 
 	cols := res.ColumnMetadata
 	if len(cols) == 0 {
-		return nil
+		return
 	}
 
 	csvRecord := make([]string, len(cols))
@@ -391,84 +337,9 @@ func exec(client *rdsdata.Client, stmt string, params []rdsdata.SqlParameter, tr
 	}
 
 	fmt.Println("Total", len(res.Records))
-	return nil
 }
 
-func beginTransaction(client *rdsdata.Client, c chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(timeout)
-	defer cancel()
-
-	go func() {
-		select {
-		case <-c:
-			cancel()
-
-		case <-ctx.Done():
-		}
-	}()
-
-	if elapsed {
-		printElapsed("BEGIN TRANSACTION")()
-	}
-
-	res, err := client.BeginTransactionRequest(&rdsdata.BeginTransactionInput{
-		Database:    aws.String(dbName),
-		ResourceArn: aws.String(resourceArn),
-		SecretArn:   aws.String(secretArn),
-	}).Send(ctx)
-
-	if err != nil {
-		return "", err
-	}
-
-	return aws.StringValue(res.TransactionId), nil
-}
-
-func endTransaction(client *rdsdata.Client, tid string, commit bool, c chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(timeout)
-	defer cancel()
-
-	go func() {
-		select {
-		case <-c:
-			cancel()
-
-		case <-ctx.Done():
-		}
-	}()
-
-	if elapsed {
-		printElapsed("END TRANSACTION")()
-	}
-
-	if commit {
-		res, err := client.CommitTransactionRequest(&rdsdata.CommitTransactionInput{
-			ResourceArn:   aws.String(resourceArn),
-			SecretArn:     aws.String(secretArn),
-			TransactionId: aws.String(tid),
-		}).Send(ctx)
-
-		if err != nil {
-			return "", err
-		}
-
-		return aws.StringValue(res.TransactionStatus), nil
-	} else { // rollback
-		res, err := client.RollbackTransactionRequest(&rdsdata.RollbackTransactionInput{
-			ResourceArn:   aws.String(resourceArn),
-			SecretArn:     aws.String(secretArn),
-			TransactionId: aws.String(tid),
-		}).Send(ctx)
-
-		if err != nil {
-			return "", err
-		}
-
-		return aws.StringValue(res.TransactionStatus), nil
-	}
-}
-
-func format(f rdsdata.Field) string {
+func format(f rdsql.Field) string {
 	if aws.BoolValue(f.IsNull) {
 		return "NULL"
 	}
@@ -492,29 +363,25 @@ func format(f rdsdata.Field) string {
 	return f.String()
 }
 
-func parseParams(s string) []rdsdata.SqlParameter {
+func parseParams(s string) map[string]interface{} {
 	if len(s) == 0 {
 		return nil
 	}
 
 	parts := strings.Split(s, ",")
-	params := make([]rdsdata.SqlParameter, len(parts))
+	params := make(map[string]interface{})
 
-	for i, p := range parts {
+	for _, p := range parts {
 		nv := strings.SplitN(p, "=", 2)
 		if len(nv) != 2 {
 			log.Fatal("invalid name=value pair")
 		}
 
-		var field rdsdata.Field
-
 		if len(nv[1]) == 0 {
-			field.IsNull = aws.Bool(true)
+			params[nv[0]] = nil
 		} else {
-			field.StringValue = aws.String(nv[1])
+			params[nv[0]] = nv[1]
 		}
-
-		params[i] = rdsdata.SqlParameter{Name: aws.String(nv[0]), Value: &field}
 	}
 
 	return params
