@@ -1,3 +1,6 @@
+[![Go Documentation](http://godoc.org/github.com/raff/rdsql?status.svg)](http://godoc.org/github.com/raff/rdsql)
+[![Go Report Card](https://goreportcard.com/badge/github.com/raff/rdsql)](https://goreportcard.com/report/github.com/raff/rdsql)
+
 # rdsql
 A SQL client for AWS Aurora serverless using rds-data API
 
