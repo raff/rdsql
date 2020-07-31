@@ -1,7 +1,7 @@
 # rdsql
 A SQL client for AWS Aurora serverless using rds-data API
 
-Library usage:
+Package usage:
 
     import "github.com/raff/rdsql"
 
