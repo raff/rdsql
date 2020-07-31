@@ -147,7 +147,7 @@ func (c *RDSClient) EndTransaction(tid string, commit bool, ch chan os.Signal) (
 		return c.CommitTransaction(tid, ch)
 	}
 
-        return c.RollbackTransaction(tid, ch)
+	return c.RollbackTransaction(tid, ch)
 }
 
 // Results is an alias for *rdsdata.ExecuteStatementOutput
