@@ -1,7 +1,6 @@
 // Package rdsql implements some methods to access an RDS Aurora Servless DB cluster via RDS DataService
 //
 // See https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/data-api.html
-
 package rdsql
 
 import (
