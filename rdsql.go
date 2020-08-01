@@ -82,6 +82,9 @@ func (c *RDSClient) BeginTransaction(terminate chan os.Signal) (string, error) {
 			cancel()
 
 		case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
+				log.Println("context error:", err)
+			}
 		}
 	}()
 
@@ -109,6 +112,9 @@ func (c *RDSClient) CommitTransaction(tid string, terminate chan os.Signal) (str
 			cancel()
 
 		case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
+				log.Println("context error:", err)
+			}
 		}
 	}()
 
@@ -132,6 +138,9 @@ func (c *RDSClient) RollbackTransaction(tid string, terminate chan os.Signal) (s
 			cancel()
 
 		case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
+				log.Println("context error:", err)
+			}
 		}
 	}()
 
@@ -176,6 +185,9 @@ func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{},
 			cancel()
 
 		case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
+				log.Println("context error:", err)
+			}
 		}
 	}()
 

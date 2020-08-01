@@ -24,7 +24,7 @@ var (
 	resourceArn = os.Getenv("RDS_RESOURCE")
 	secretArn   = os.Getenv("RDS_SECRET")
 	dbName      = os.Getenv("RDS_DATABASE")
-	profile     string
+	profile     = os.Getenv("RDS_PROFILE")
 	elapsed     bool
 	debug       bool
 
@@ -69,7 +69,6 @@ var (
 func init() {
 	sort.Strings(keywords)
 
-	profile = os.Getenv("RDS_PROFILE")
 	if profile == "" {
 		profile = os.Getenv("AWS_PROFILE")
 	}
