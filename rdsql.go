@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"os"
+        "strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -33,15 +34,6 @@ func GetAWSConfig(profile string, debug bool) aws.Config {
 	return awscfg
 }
 
-// StringOrNil return nil for an empty string or aws.String
-func StringOrNil(s string) *string {
-	if s == "" {
-		return nil
-	}
-
-	return aws.String(s)
-}
-
 // RDSClient wraps *rdsdata.Client and client configuration (ResourceArn, SecretArn, etc...)
 type RDSClient struct {
 	client *rdsdata.Client
@@ -53,8 +45,29 @@ type RDSClient struct {
 	Timeout time.Duration
 }
 
-// GetRDSClient creates an instance of RDSClient
-func GetRDSClient(config aws.Config, res, secret, db string) *RDSClient {
+// RDSClientWithURI creates an instance of RDSClient given an rdsql URI
+//
+// Format: rdsql:{profile};{resource};{secret};{database}
+func RDSClientWithURI(uri string, debug bool) *RDSClient {
+	if !strings.HasPrefix(uri, "rdsql:") {
+		log.Fatal("Not a valid rdsql URN")
+	}
+
+	parts := strings.Split(uri[6:], ";")
+	if len(parts) != 3 && len(parts) != 4 {
+		log.Fatal("Not a valid rdsql URN")
+	}
+
+	if len(parts) == 3 {
+		parts = append(parts, "")
+	}
+
+	config := GetAWSConfig(parts[0], debug)
+	return RDSClientWithOptions(config, parts[1], parts[2], parts[3])
+}
+
+// RDSClientWithOptions creates an instance of RDSClient given a list of options
+func RDSClientWithOptions(config aws.Config, res, secret, db string) *RDSClient {
 	if res == "" {
 		log.Fatal("missing resource ARN")
 	}
@@ -275,4 +288,13 @@ func makeContext(timeout time.Duration) (context.Context, context.CancelFunc) {
 	}
 
 	return context.WithCancel(ctx)
+}
+
+// StringOrNil return nil for an empty string or aws.String
+func StringOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return aws.String(s)
 }

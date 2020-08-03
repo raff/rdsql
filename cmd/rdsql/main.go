@@ -91,7 +91,7 @@ func main() {
 	flag.Parse()
 
 	awscfg := rdsql.GetAWSConfig(profile, debug)
-	client := rdsql.GetRDSClient(awscfg, resourceArn, secretArn, dbName)
+	client := rdsql.RDSClientWithOptions(awscfg, resourceArn, secretArn, dbName)
 
 	params := parseParams(*fparams)
 
