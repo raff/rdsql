@@ -258,7 +258,7 @@ func makeContext(timeout time.Duration, terminate chan os.Signal) (ctx context.C
 			cancel()
 
 		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
+			if err := ctx.Err(); err != nil && err != context.Canceled {
 				log.Println("context error:", err)
 			}
 		}
