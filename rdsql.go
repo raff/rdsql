@@ -7,7 +7,7 @@ import (
 	"context"
 	"log"
 	"os"
-        "strings"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -86,20 +86,8 @@ func RDSClientWithOptions(config aws.Config, res, secret, db string) *RDSClient 
 
 // BeginTransaction executes rdsdata BeginTransactionRequest
 func (c *RDSClient) BeginTransaction(terminate chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(c.Timeout)
+	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
-
-	go func() {
-		select {
-		case <-terminate:
-			cancel()
-
-		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
-				log.Println("context error:", err)
-			}
-		}
-	}()
 
 	res, err := c.client.BeginTransactionRequest(&rdsdata.BeginTransactionInput{
 		Database:    StringOrNil(c.Database),
@@ -116,7 +104,7 @@ func (c *RDSClient) BeginTransaction(terminate chan os.Signal) (string, error) {
 
 // CommitTransaction executes rdsdata CommitTransactionRequest
 func (c *RDSClient) CommitTransaction(tid string, terminate chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(c.Timeout)
+	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
 	go func() {
@@ -142,20 +130,8 @@ func (c *RDSClient) CommitTransaction(tid string, terminate chan os.Signal) (str
 
 // RollbackTransaction executes rdsdata RollbackTransactionRequest
 func (c *RDSClient) RollbackTransaction(tid string, terminate chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(c.Timeout)
+	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
-
-	go func() {
-		select {
-		case <-terminate:
-			cancel()
-
-		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
-				log.Println("context error:", err)
-			}
-		}
-	}()
 
 	res, err := c.client.RollbackTransactionRequest(&rdsdata.RollbackTransactionInput{
 		ResourceArn:   aws.String(c.ResourceArn),
@@ -189,20 +165,8 @@ type Field = rdsdata.Field
 // parameters could be passed as :par1, :par2... in the SQL statement
 // with associated parameter list in the request
 func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{}, transactionId string, terminate chan os.Signal) (Results, error) {
-	ctx, cancel := makeContext(c.Timeout)
+	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
-
-	go func() {
-		select {
-		case <-terminate:
-			cancel()
-
-		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
-				log.Println("context error:", err)
-			}
-		}
-	}()
 
 	res, err := c.client.ExecuteStatementRequest(&rdsdata.ExecuteStatementInput{
 		Database:              StringOrNil(c.Database),
@@ -281,13 +245,26 @@ func makeParams(params map[string]interface{}) []rdsdata.SqlParameter {
 	return plist
 }
 
-func makeContext(timeout time.Duration) (context.Context, context.CancelFunc) {
-	ctx := context.Background()
+func makeContext(timeout time.Duration, terminate chan os.Signal) (ctx context.Context, cancel context.CancelFunc) {
 	if timeout > 0 {
-		return context.WithTimeout(ctx, timeout)
+		ctx, cancel = context.WithTimeout(context.TODO(), timeout)
+	} else {
+		ctx, cancel = context.WithCancel(context.TODO())
 	}
 
-	return context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-terminate:
+			cancel()
+
+		case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
+				log.Println("context error:", err)
+			}
+		}
+	}()
+
+	return ctx, cancel
 }
 
 // StringOrNil return nil for an empty string or aws.String
