@@ -34,22 +34,22 @@ func GetAWSConfig(profile string, debug bool) aws.Config {
 	return awscfg
 }
 
-// RDSClient wraps *rdsdata.Client and client configuration (ResourceArn, SecretArn, etc...)
-type RDSClient struct {
+// Client wraps *rdsdata.Client and client configuration (ResourceArn, SecretArn, etc...)
+type Client struct {
 	client *rdsdata.Client
 
 	ResourceArn string
 	SecretArn   string
 	Database    string
 
-	Timeout time.Duration
-        Continue bool // ContinueAfterTimeout
+	Timeout  time.Duration
+	Continue bool // ContinueAfterTimeout
 }
 
-// RDSClientWithURI creates an instance of RDSClient given an rdsql URI
+// ClientWithURI creates an instance of Client given an rdsql URI
 //
 // Format: rdsql:{profile};{resource};{secret};{database}
-func RDSClientWithURI(uri string, debug bool) *RDSClient {
+func ClientWithURI(uri string, debug bool) *Client {
 	if !strings.HasPrefix(uri, "rdsql:") {
 		log.Fatal("Not a valid rdsql URN")
 	}
@@ -64,11 +64,11 @@ func RDSClientWithURI(uri string, debug bool) *RDSClient {
 	}
 
 	config := GetAWSConfig(parts[0], debug)
-	return RDSClientWithOptions(config, parts[1], parts[2], parts[3])
+	return ClientWithOptions(config, parts[1], parts[2], parts[3])
 }
 
-// RDSClientWithOptions creates an instance of RDSClient given a list of options
-func RDSClientWithOptions(config aws.Config, res, secret, db string) *RDSClient {
+// ClientWithOptions creates an instance of Client given a list of options
+func ClientWithOptions(config aws.Config, res, secret, db string) *Client {
 	if res == "" {
 		log.Fatal("missing resource ARN")
 	}
@@ -77,7 +77,7 @@ func RDSClientWithOptions(config aws.Config, res, secret, db string) *RDSClient 
 		log.Fatal("missing secret ARN")
 	}
 
-	return &RDSClient{
+	return &Client{
 		client:      rdsdata.New(config),
 		ResourceArn: res,
 		SecretArn:   secret,
@@ -86,7 +86,7 @@ func RDSClientWithOptions(config aws.Config, res, secret, db string) *RDSClient 
 }
 
 // BeginTransaction executes rdsdata BeginTransactionRequest
-func (c *RDSClient) BeginTransaction(terminate chan os.Signal) (string, error) {
+func (c *Client) BeginTransaction(terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
@@ -104,7 +104,7 @@ func (c *RDSClient) BeginTransaction(terminate chan os.Signal) (string, error) {
 }
 
 // CommitTransaction executes rdsdata CommitTransactionRequest
-func (c *RDSClient) CommitTransaction(tid string, terminate chan os.Signal) (string, error) {
+func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
@@ -130,7 +130,7 @@ func (c *RDSClient) CommitTransaction(tid string, terminate chan os.Signal) (str
 }
 
 // RollbackTransaction executes rdsdata RollbackTransactionRequest
-func (c *RDSClient) RollbackTransaction(tid string, terminate chan os.Signal) (string, error) {
+func (c *Client) RollbackTransaction(tid string, terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
@@ -144,7 +144,7 @@ func (c *RDSClient) RollbackTransaction(tid string, terminate chan os.Signal) (s
 }
 
 // EndTransaction executes either a commit or a rollback request
-func (c *RDSClient) EndTransaction(tid string, commit bool, terminate chan os.Signal) (string, error) {
+func (c *Client) EndTransaction(tid string, commit bool, terminate chan os.Signal) (string, error) {
 	if commit {
 		return c.CommitTransaction(tid, terminate)
 	}
@@ -165,7 +165,7 @@ type Field = rdsdata.Field
 //
 // parameters could be passed as :par1, :par2... in the SQL statement
 // with associated parameter list in the request
-func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{}, transactionId string, terminate chan os.Signal) (Results, error) {
+func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, transactionId string, terminate chan os.Signal) (Results, error) {
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
@@ -177,7 +177,7 @@ func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{},
 		Parameters:            makeParams(params),
 		IncludeResultMetadata: aws.Bool(true),
 		TransactionId:         StringOrNil(transactionId),
-                ContinueAfterTimeout:  aws.Bool(c.Continue),
+		ContinueAfterTimeout:  aws.Bool(c.Continue),
 		// Schema
 		// ResultSetOptions
 	}).Send(ctx)
@@ -190,7 +190,7 @@ func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{},
 }
 
 // Ping verifies the connection to the database is still alive.
-func (c *RDSClient) Ping(terminate chan os.Signal) error {
+func (c *Client) Ping(terminate chan os.Signal) error {
 	_, err := c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
 	return err
 }

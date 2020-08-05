@@ -27,8 +27,7 @@ var (
 	profile     = os.Getenv("RDS_PROFILE")
 	elapsed     bool
 	debug       bool
-
-	timeout = 2 * time.Minute
+	verbose     bool
 
 	keywords = []string{
 		"BEGIN",
@@ -65,7 +64,7 @@ var (
 		"TABLES",
 	}
 
-        historyfile = ".rdsql"
+	historyfile = ".rdsql"
 )
 
 func init() {
@@ -81,12 +80,12 @@ func main() {
 	flag.StringVar(&secretArn, "secret", secretArn, "resource secret")
 	flag.StringVar(&dbName, "database", dbName, "database")
 	flag.StringVar(&profile, "profile", profile, "AWS profile")
-	flag.DurationVar(&timeout, "timeout", timeout, "context timeout")
 	flag.BoolVar(&elapsed, "elapsed", elapsed, "print elapsed time")
 	flag.BoolVar(&debug, "debug", debug, "enable debugging")
+	flag.BoolVar(&verbose, "verbose", verbose, "log statements before execution")
 
+	timeout := flag.Duration("timeout", 2*time.Minute, "request timeout")
 	cont := flag.Bool("continue", true, "continue after timeout (for DDL statements)")
-	verbose := flag.Bool("verbose", false, "log statements before execution")
 	csv := flag.Bool("csv", false, "print output as csv")
 	trans := flag.Bool("transaction", false, "wrap full session in a remote transaction")
 	fparams := flag.String("params", "", "query parameters (comma separated list of name=value pair)")
@@ -94,8 +93,9 @@ func main() {
 	flag.Parse()
 
 	awscfg := rdsql.GetAWSConfig(profile, debug)
-	client := rdsql.RDSClientWithOptions(awscfg, resourceArn, secretArn, dbName)
-        client.Continue = *cont
+	client := rdsql.ClientWithOptions(awscfg, resourceArn, secretArn, dbName)
+	client.Continue = *cont
+	client.Timeout = *timeout
 
 	params := parseParams(*fparams)
 
@@ -157,17 +157,17 @@ func main() {
 	line := liner.NewLiner()
 	defer line.Close()
 
-        if f, err := os.Open(historyfile); err == nil {
-                line.ReadHistory(f)
-                f.Close()
-        }
+	if f, err := os.Open(historyfile); err == nil {
+		line.ReadHistory(f)
+		f.Close()
+	}
 
-        defer func() {
-                if f, err := os.Create(historyfile); err == nil {
-                        line.WriteHistory(f)
-                        f.Close()
-                }
-        }()
+	defer func() {
+		if f, err := os.Create(historyfile); err == nil {
+			line.WriteHistory(f)
+			f.Close()
+		}
+	}()
 
 	line.SetWordCompleter(func(line string, pos int) (head string, completions []string, tail string) {
 		head = line[:pos]
@@ -241,7 +241,12 @@ func main() {
 
 		line.AppendHistory(stmt)
 
-		if *verbose {
+		if strings.HasPrefix(stmt, `\`) {
+			executeCommand(client, stmt)
+			continue
+		}
+
+		if verbose {
 			fmt.Println("--", stmt)
 		}
 
@@ -339,8 +344,8 @@ func printResults(res rdsql.Results, asCsv bool) {
 	if nr > 0 {
 		fmt.Println("Updated", nr, "records")
 	} else {
-	        fmt.Println("\nTotal", len(res.Records))
-        }
+		fmt.Println("\nTotal", len(res.Records))
+	}
 
 }
 
@@ -390,4 +395,63 @@ func parseParams(s string) map[string]interface{} {
 	}
 
 	return params
+}
+
+const help = `
+Available commands are:
+
+?       (\?) Synonym for 'help'
+debug   (\d) Enable/disable debug mode
+help    (\h) Display this help
+elapsed (\e) Enable/disable elapsed time
+timeout (\t) Set request timeout
+use     (\u) Use specified database
+verbose (\v) Enable/disable verbose mode
+`
+
+func executeCommand(client *rdsql.Client, c string) {
+	params := strings.Fields(c)
+	c, params = params[0], params[1:]
+
+	switch {
+	case c == `\?` || strings.HasPrefix(c, `\h`): // help
+		fmt.Println(help)
+
+	case strings.HasPrefix(c, `\d`): // debug [bool]
+		if len(params) > 0 {
+			debug, _ = strconv.ParseBool(params[0])
+		}
+		fmt.Println("debug", debug)
+
+	case strings.HasPrefix(c, `\e`): // elapsed [bool]
+		if len(params) > 0 {
+			elapsed, _ = strconv.ParseBool(params[0])
+		}
+		fmt.Println("elapsed", elapsed)
+
+	case strings.HasPrefix(c, `\t`): // timeout [duration]
+		if len(params) > 0 {
+			client.Timeout, _ = time.ParseDuration(params[0])
+		}
+		fmt.Println("timeout", client.Timeout)
+
+	case strings.HasPrefix(c, `\u`): // use [database name]
+		if len(params) > 0 {
+			if u, err := strconv.Unquote(params[0]); err == nil {
+				params[0] = u
+			}
+			client.Database = params[0]
+		}
+		fmt.Println("use", client.Database)
+
+	case strings.HasPrefix(c, `\v`): // verbose [bool]
+		if len(params) > 0 {
+			verbose, _ = strconv.ParseBool(params[0])
+		}
+		fmt.Println("verbose", verbose)
+
+	default:
+		fmt.Printf("unknown command %v\n", c)
+		fmt.Println(help)
+	}
 }
