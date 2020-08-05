@@ -64,6 +64,8 @@ var (
 		"SHOW",
 		"TABLES",
 	}
+
+        historyfile = ".rdsql"
 )
 
 func init() {
@@ -155,19 +157,17 @@ func main() {
 	line := liner.NewLiner()
 	defer line.Close()
 
-	/*
-		if f, err := os.Open(historyfile); err == nil {
-			line.ReadHistory(f)
-			f.Close()
-		}
+        if f, err := os.Open(historyfile); err == nil {
+                line.ReadHistory(f)
+                f.Close()
+        }
 
-		defer func() {
-			if f, err := os.Create(historyfile); err == nil {
-				line.WriteHistory(f)
-				f.Close()
-			}
-		}()
-	*/
+        defer func() {
+                if f, err := os.Create(historyfile); err == nil {
+                        line.WriteHistory(f)
+                        f.Close()
+                }
+        }()
 
 	line.SetWordCompleter(func(line string, pos int) (head string, completions []string, tail string) {
 		head = line[:pos]
@@ -288,11 +288,6 @@ func printResults(res rdsql.Results, asCsv bool) {
 		}
 	}
 
-	nr := aws.Int64Value(res.NumberOfRecordsUpdated)
-	if nr > 0 {
-		fmt.Println("Updated", nr, "records")
-	}
-
 	cols := res.ColumnMetadata
 	if len(cols) == 0 {
 		return
@@ -340,7 +335,13 @@ func printResults(res rdsql.Results, asCsv bool) {
 
 	}
 
-	fmt.Println("Total", len(res.Records))
+	nr := aws.Int64Value(res.NumberOfRecordsUpdated)
+	if nr > 0 {
+		fmt.Println("Updated", nr, "records")
+	} else {
+	        fmt.Println("\nTotal", len(res.Records))
+        }
+
 }
 
 func format(f rdsql.Field) string {
