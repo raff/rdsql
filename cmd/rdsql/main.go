@@ -83,6 +83,7 @@ func main() {
 	flag.BoolVar(&elapsed, "elapsed", elapsed, "print elapsed time")
 	flag.BoolVar(&debug, "debug", debug, "enable debugging")
 
+	cont := flag.Bool("continue", true, "continue after timeout (for DDL statements)")
 	verbose := flag.Bool("verbose", false, "log statements before execution")
 	csv := flag.Bool("csv", false, "print output as csv")
 	trans := flag.Bool("transaction", false, "wrap full session in a remote transaction")
@@ -92,6 +93,7 @@ func main() {
 
 	awscfg := rdsql.GetAWSConfig(profile, debug)
 	client := rdsql.RDSClientWithOptions(awscfg, resourceArn, secretArn, dbName)
+        client.Continue = *cont
 
 	params := parseParams(*fparams)
 
@@ -100,7 +102,7 @@ func main() {
 	defer signal.Stop(c)
 
 	if err := client.Ping(c); err != nil {
-		log.Fatalf("Cannot connect to database: %v", err)
+		log.Fatalf("Cannot connect to database: %#v", err)
 	}
 
 	var transactionId string

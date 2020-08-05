@@ -43,6 +43,7 @@ type RDSClient struct {
 	Database    string
 
 	Timeout time.Duration
+        Continue bool // ContinueAfterTimeout
 }
 
 // RDSClientWithURI creates an instance of RDSClient given an rdsql URI
@@ -176,7 +177,7 @@ func (c *RDSClient) ExecuteStatement(stmt string, params map[string]interface{},
 		Parameters:            makeParams(params),
 		IncludeResultMetadata: aws.Bool(true),
 		TransactionId:         StringOrNil(transactionId),
-		// ContinueAfterTimeout
+                ContinueAfterTimeout:  aws.Bool(c.Continue),
 		// Schema
 		// ResultSetOptions
 	}).Send(ctx)
