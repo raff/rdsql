@@ -9,7 +9,7 @@ Package usage:
     import "github.com/raff/rdsql"
 
     awscfg := rdsql.GetAWSConfig(profile, debug)
-    client := rdsql.GetRDSClient(awscfg, resourceArn, secretArn, dbName)
+    client := rdsql.ClientWithOptions(awscfg, resourceArn, secretArn, dbName)
 
     ch := make(chan os.Signal, 1)
 
@@ -36,22 +36,30 @@ Package usage:
 Command usage:
 
     rdsql [options] [sql statement]
+      -continue
+            continue after timeout (for DDL statements) (default true)
       -csv
             print output as csv
       -database string
             database
       -debug
-            enabled debugging
+            enable debugging
+      -elapsed
+            print elapsed time
+      -params string
+            query parameters (comma separated list of name=value pair)
       -profile string
             AWS profile
       -resource string
             resource ARN
       -secret string
             resource secret
-      -t	
-            print elapsed time
       -timeout duration
-            context timeout (default 5m0s)
+            request timeout (default 2m0s)
+      -transaction
+            wrap full session in a remote transaction
+      -verbose
+            log statements before execution
 
 Environment variables:
 
