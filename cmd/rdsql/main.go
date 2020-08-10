@@ -104,7 +104,7 @@ func main() {
 	defer signal.Stop(c)
 
 	if err := client.Ping(c); err != nil {
-		log.Fatalf("Cannot connect to database: %#v", err)
+		log.Fatalf("Cannot connect to database: %v", err)
 	}
 
 	var transactionId string
