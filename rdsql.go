@@ -11,9 +11,12 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/awserr"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
 )
+
+var PingRetries = 5
 
 // GetAWSConfig return an aws.Config profile
 func GetAWSConfig(profile string, debug bool) aws.Config {
@@ -190,8 +193,22 @@ func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, tr
 }
 
 // Ping verifies the connection to the database is still alive.
-func (c *Client) Ping(terminate chan os.Signal) error {
-	_, err := c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
+func (c *Client) Ping(terminate chan os.Signal) (err error) {
+	for i := 0; i < PingRetries; i++ {
+		if i > 0 {
+			log.Println(err)
+			time.Sleep(time.Second)
+			log.Println("RETRY", i)
+		}
+
+		_, err = c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
+		// assume BadRequestException is because Aurora serverless is restarting and retry
+
+		if aerr, ok := err.(awserr.Error); !ok || aerr.Code() != "BadRequestException" {
+			break
+		}
+	}
+
 	return err
 }
 
