@@ -25,6 +25,7 @@ var (
 	secretArn   = os.Getenv("RDS_SECRET")
 	dbName      = os.Getenv("RDS_DATABASE")
 	profile     = os.Getenv("RDS_PROFILE")
+	delimiter   = ""
 	elapsed     bool
 	debug       bool
 	verbose     bool
@@ -80,6 +81,7 @@ func main() {
 	flag.StringVar(&secretArn, "secret", secretArn, "resource secret")
 	flag.StringVar(&dbName, "database", dbName, "database")
 	flag.StringVar(&profile, "profile", profile, "AWS profile")
+	flag.StringVar(&delimiter, "delimiter", delimiter, "Statement delimiter")
 	flag.BoolVar(&elapsed, "elapsed", elapsed, "print elapsed time")
 	flag.BoolVar(&debug, "debug", debug, "enable debugging")
 	flag.BoolVar(&verbose, "verbose", verbose, "log statements before execution")
@@ -96,6 +98,13 @@ func main() {
 	client := rdsql.ClientWithOptions(awscfg, resourceArn, secretArn, dbName)
 	client.Continue = *cont
 	client.Timeout = *timeout
+
+	if len(delimiter) > 0 {
+		delimiter = delimiter[0:1]
+	}
+	if delimiter == "[" {
+		delimiter = ""
+	}
 
 	params := parseParams(*fparams)
 
@@ -217,20 +226,42 @@ func main() {
 			continue
 		}
 
-		if multi == false {
-			if l == "[[[" {
-				multi = true
-				stmt = ""
-				continue
+		if delimiter == "" {
+			if multi == false {
+				if l == "[[[" {
+					multi = true
+					stmt = ""
+					continue
+				} else {
+					stmt = l
+				}
 			} else {
-				stmt = l
+				if l == "]]]" {
+					multi = false
+				} else {
+					stmt += " " + strings.TrimSpace(l)
+					continue
+				}
 			}
 		} else {
-			if l == "]]]" {
-				multi = false
+			l = strings.TrimSpace(l)
+			if strings.HasPrefix(l, `\`) || l == "" {
+				// skip this, commands are never multi-line
+			} else if multi == false {
+				stmt = strings.TrimSuffix(l, delimiter)
+
+				if !strings.HasSuffix(l, delimiter) {
+					multi = true
+					continue
+				}
 			} else {
-				stmt += " " + strings.TrimSpace(l)
-				continue
+				stmt += " " + strings.TrimSuffix(l, delimiter)
+
+				if strings.HasSuffix(l, delimiter) {
+					multi = false
+				} else {
+					continue
+				}
 			}
 		}
 
@@ -400,13 +431,14 @@ func parseParams(s string) map[string]interface{} {
 const help = `
 Available commands are:
 
-?       (\?) Synonym for 'help'
-debug   (\d) Enable/disable debug mode
-help    (\h) Display this help
-elapsed (\e) Enable/disable elapsed time
-timeout (\t) Set request timeout
-use     (\u) Use specified database
-verbose (\v) Enable/disable verbose mode
+?         (\?) Synonym for 'help'
+debug     (\D) Enable/disable debug mode
+delimiter (\d) Set statement delimiter
+help      (\h) Display this help
+elapsed   (\e) Enable/disable elapsed time
+timeout   (\t) Set request timeout
+use       (\u) Use specified database
+verbose   (\v) Enable/disable verbose mode
 `
 
 func executeCommand(client *rdsql.Client, c string) {
@@ -417,11 +449,22 @@ func executeCommand(client *rdsql.Client, c string) {
 	case c == `\?` || strings.HasPrefix(c, `\h`): // help
 		fmt.Println(help)
 
-	case strings.HasPrefix(c, `\d`): // debug [bool]
+	case strings.HasPrefix(c, `\D`): // debug [bool]
 		if len(params) > 0 {
 			debug, _ = strconv.ParseBool(params[0])
 		}
 		fmt.Println("debug", debug)
+
+	case strings.HasPrefix(c, `\d`): // delimiter [char]
+		if len(params) > 0 {
+			d := params[0]
+			if d[0] == '[' {
+				delimiter = ""
+			} else {
+				delimiter = d[0:1]
+			}
+		}
+		fmt.Println("delimiter", delimiter)
 
 	case strings.HasPrefix(c, `\e`): // elapsed [bool]
 		if len(params) > 0 {
