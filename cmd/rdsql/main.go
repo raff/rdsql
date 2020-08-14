@@ -34,6 +34,7 @@ var (
 		"BEGIN",
 		"START",
 		"COMMIT",
+                "ROLLBACK",
 		"TRANSACTION",
 		"END",
 		"EXEC",
