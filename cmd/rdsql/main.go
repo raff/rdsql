@@ -87,9 +87,12 @@ func main() {
 	flag.BoolVar(&debug, "debug", debug, "enable debugging")
 	flag.BoolVar(&verbose, "verbose", verbose, "log statements before execution")
 
+	flag.IntVar(&rdsql.PingRetries, "wait", rdsql.PingRetries, "how long to wait for initial ping")
+
 	timeout := flag.Duration("timeout", 2*time.Minute, "request timeout")
 	cont := flag.Bool("continue", true, "continue after timeout (for DDL statements)")
 	csv := flag.Bool("csv", false, "print output as csv")
+	silent := flag.Bool("silent", false, "print less output (no column names, no total records")
 	trans := flag.Bool("transaction", false, "wrap full session in a remote transaction")
 	fparams := flag.String("params", "", "query parameters (comma separated list of name=value pair)")
 
@@ -160,7 +163,7 @@ func main() {
 			return
 		}
 
-		printResults(res, *csv)
+		printResults(res, *csv, *silent)
 		return
 	}
 
@@ -294,7 +297,7 @@ func main() {
 				break
 			}
 		} else {
-			printResults(res, *csv)
+			printResults(res, *csv, *silent)
 		}
 	}
 }
@@ -311,7 +314,7 @@ func printElapsed(prefix string, print bool) func() {
 	}
 }
 
-func printResults(res rdsql.Results, asCsv bool) {
+func printResults(res rdsql.Results, asCsv, silent bool) {
 	var cw *csv.Writer
 	if asCsv {
 		cw = csv.NewWriter(os.Stdout)
@@ -336,7 +339,7 @@ func printResults(res rdsql.Results, asCsv bool) {
 
 		if asCsv {
 			csvRecord[i] = label
-		} else {
+		} else if !silent {
 			if i != 0 {
 				fmt.Print("\t")
 			}
@@ -346,7 +349,7 @@ func printResults(res rdsql.Results, asCsv bool) {
 
 	if asCsv {
 		cw.Write(csvRecord)
-	} else {
+	} else if !silent {
 		fmt.Println()
 	}
 
@@ -372,13 +375,14 @@ func printResults(res rdsql.Results, asCsv bool) {
 
 	}
 
-	nr := aws.Int64Value(res.NumberOfRecordsUpdated)
-	if nr > 0 {
-		fmt.Println("Updated", nr, "records")
-	} else {
-		fmt.Println("\nTotal", len(res.Records))
+	if !silent {
+		nr := aws.Int64Value(res.NumberOfRecordsUpdated)
+		if nr > 0 {
+			fmt.Println("Updated", nr, "records")
+		} else {
+			fmt.Println("\nTotal", len(res.Records))
+		}
 	}
-
 }
 
 func format(f rdsql.Field) string {
