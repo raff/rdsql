@@ -117,7 +117,7 @@ func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string
 			cancel()
 
 		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
+			if err := ctx.Err(); err != nil && err != context.Canceled {
 				log.Println("context error:", err)
 			}
 		}
@@ -196,7 +196,7 @@ func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, tr
 func (c *Client) Ping(terminate chan os.Signal) (err error) {
 	for i := 0; i < PingRetries; i++ {
 		if i > 0 {
-			log.Println(err)
+			// log.Println(err)
 			time.Sleep(time.Second)
 			log.Println("RETRY", i)
 		}
