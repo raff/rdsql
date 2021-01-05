@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 
 	"github.com/peterh/liner"
 	"github.com/raff/rdsql"
@@ -34,7 +35,7 @@ var (
 		"BEGIN",
 		"START",
 		"COMMIT",
-                "ROLLBACK",
+		"ROLLBACK",
 		"TRANSACTION",
 		"END",
 		"EXEC",
@@ -335,7 +336,7 @@ func printResults(res rdsql.Results, asCsv, silent bool) {
 
 	csvRecord := make([]string, len(cols))
 	for i := 0; i < len(cols); i++ {
-		label := aws.StringValue(cols[i].Label)
+		label := aws.ToString(cols[i].Label)
 
 		if asCsv {
 			csvRecord[i] = label
@@ -376,7 +377,7 @@ func printResults(res rdsql.Results, asCsv, silent bool) {
 	}
 
 	if !silent {
-		nr := aws.Int64Value(res.NumberOfRecordsUpdated)
+		nr := res.NumberOfRecordsUpdated
 		if nr > 0 {
 			fmt.Println("Updated", nr, "records")
 		} else {
@@ -386,27 +387,37 @@ func printResults(res rdsql.Results, asCsv, silent bool) {
 }
 
 func format(f rdsql.Field) string {
-	if aws.BoolValue(f.IsNull) {
+	// type switches can be used to check the union value
+	switch v := f.(type) {
+	case *types.FieldMemberArrayValue:
+		return fmt.Sprintf("unsupported array value: %v", v.Value) // Value is types.ArrayValue
+
+	case *types.FieldMemberBlobValue:
+		return string(v.Value) // Value is []byte
+
+	case *types.FieldMemberBooleanValue:
+		return strconv.FormatBool(v.Value) // Value is bool
+
+	case *types.FieldMemberDoubleValue:
+		return strconv.FormatFloat(v.Value, 'f', -1, 64) // Value is float64
+
+	case *types.FieldMemberIsNull:
 		return "NULL"
+
+	case *types.FieldMemberLongValue:
+		return strconv.FormatInt(v.Value, 10) // Value is int64
+
+	case *types.FieldMemberStringValue:
+		return v.Value // Value is string
+
+	case *types.UnknownUnionMember:
+		return fmt.Sprintf("unknown tag: %v", v.Tag)
+
+	default:
+		return fmt.Sprintf("union is nil or unknown type: %#v", f)
 	}
 
-	if f.StringValue != nil {
-		return aws.StringValue(f.StringValue)
-	}
-
-	if f.BooleanValue != nil {
-		return strconv.FormatBool(aws.BoolValue(f.BooleanValue))
-	}
-
-	if f.LongValue != nil {
-		return strconv.FormatInt(aws.Int64Value(f.LongValue), 10)
-	}
-
-	if f.DoubleValue != nil {
-		return strconv.FormatFloat(aws.Float64Value(f.DoubleValue), 'f', -1, 64)
-	}
-
-	return f.String()
+	return ""
 }
 
 func parseParams(s string) map[string]interface{} {

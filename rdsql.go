@@ -11,27 +11,27 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/awserr"
-	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
+	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 )
 
 var PingRetries = 5
 
 // GetAWSConfig return an aws.Config profile
 func GetAWSConfig(profile string, debug bool) aws.Config {
-	var configs []external.Config
+	var configs []func(*config.LoadOptions) error
 	if profile != "" {
-		configs = append(configs, external.WithSharedConfigProfile(profile))
+		configs = append(configs, config.WithSharedConfigProfile(profile))
 	}
 
-	awscfg, err := external.LoadDefaultAWSConfig(configs...)
+	awscfg, err := config.LoadDefaultConfig(context.TODO(), configs...)
 	if err != nil {
 		log.Fatalf("AWS configuration: %v", err)
 	}
 
 	if debug {
-		awscfg.LogLevel = aws.LogDebugWithSigning // aws.LogDebug
+		awscfg.ClientLogMode = aws.LogSigning | aws.LogRetries | aws.LogRequest | aws.LogResponse
 	}
 
 	return awscfg
@@ -81,32 +81,32 @@ func ClientWithOptions(config aws.Config, res, secret, db string) *Client {
 	}
 
 	return &Client{
-		client:      rdsdata.New(config),
+		client:      rdsdata.NewFromConfig(config),
 		ResourceArn: res,
 		SecretArn:   secret,
 		Database:    db,
 	}
 }
 
-// BeginTransaction executes rdsdata BeginTransactionRequest
+// BeginTransaction executes rdsdata BeginTransaction
 func (c *Client) BeginTransaction(terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
-	res, err := c.client.BeginTransactionRequest(&rdsdata.BeginTransactionInput{
+	res, err := c.client.BeginTransaction(ctx, &rdsdata.BeginTransactionInput{
 		Database:    StringOrNil(c.Database),
 		ResourceArn: aws.String(c.ResourceArn),
 		SecretArn:   aws.String(c.SecretArn),
-	}).Send(ctx)
+	})
 
 	if err != nil {
 		return "", err
 	}
 
-	return aws.StringValue(res.TransactionId), nil
+	return aws.ToString(res.TransactionId), nil
 }
 
-// CommitTransaction executes rdsdata CommitTransactionRequest
+// CommitTransaction executes rdsdata CommitTransaction
 func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
@@ -123,27 +123,27 @@ func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string
 		}
 	}()
 
-	res, err := c.client.CommitTransactionRequest(&rdsdata.CommitTransactionInput{
+	res, err := c.client.CommitTransaction(ctx, &rdsdata.CommitTransactionInput{
 		ResourceArn:   aws.String(c.ResourceArn),
 		SecretArn:     aws.String(c.SecretArn),
 		TransactionId: aws.String(tid),
-	}).Send(ctx)
+	})
 
-	return aws.StringValue(res.TransactionStatus), err
+	return aws.ToString(res.TransactionStatus), err
 }
 
-// RollbackTransaction executes rdsdata RollbackTransactionRequest
+// RollbackTransaction executes rdsdata RollbackTransaction
 func (c *Client) RollbackTransaction(tid string, terminate chan os.Signal) (string, error) {
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
-	res, err := c.client.RollbackTransactionRequest(&rdsdata.RollbackTransactionInput{
+	res, err := c.client.RollbackTransaction(ctx, &rdsdata.RollbackTransactionInput{
 		ResourceArn:   aws.String(c.ResourceArn),
 		SecretArn:     aws.String(c.SecretArn),
 		TransactionId: aws.String(tid),
-	}).Send(ctx)
+	})
 
-	return aws.StringValue(res.TransactionStatus), err
+	return aws.ToString(res.TransactionStatus), err
 }
 
 // EndTransaction executes either a commit or a rollback request
@@ -158,11 +158,11 @@ func (c *Client) EndTransaction(tid string, commit bool, terminate chan os.Signa
 // Results is an alias for *rdsdata.ExecuteStatementOutput
 type Results = *rdsdata.ExecuteStatementOutput
 
-// ColumnMetadata is an alias for rdsdata.ColumnMetadata
-type ColumnMetadata = rdsdata.ColumnMetadata
+// ColumnMetadata is an alias for rdsdata types.ColumnMetadata
+type ColumnMetadata = types.ColumnMetadata
 
-// Field is an alias for rdsdata.Field
-type Field = rdsdata.Field
+// Field is an alias for rdsdata types.Field
+type Field = types.Field
 
 // ExecuteStatement executes a SQL statement and return Results
 //
@@ -172,24 +172,24 @@ func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, tr
 	ctx, cancel := makeContext(c.Timeout, terminate)
 	defer cancel()
 
-	res, err := c.client.ExecuteStatementRequest(&rdsdata.ExecuteStatementInput{
+	res, err := c.client.ExecuteStatement(ctx, &rdsdata.ExecuteStatementInput{
 		Database:              StringOrNil(c.Database),
 		ResourceArn:           aws.String(c.ResourceArn),
 		SecretArn:             aws.String(c.SecretArn),
 		Sql:                   aws.String(stmt),
 		Parameters:            makeParams(params),
-		IncludeResultMetadata: aws.Bool(true),
+		IncludeResultMetadata: true,
 		TransactionId:         StringOrNil(transactionId),
-		ContinueAfterTimeout:  aws.Bool(c.Continue),
+		ContinueAfterTimeout:  c.Continue,
 		// Schema
 		// ResultSetOptions
-	}).Send(ctx)
+	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	return res.ExecuteStatementOutput, nil
+	return res, nil
 }
 
 // Ping verifies the connection to the database is still alive.
@@ -204,7 +204,7 @@ func (c *Client) Ping(terminate chan os.Signal) (err error) {
 		_, err = c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
 		// assume BadRequestException is because Aurora serverless is restarting and retry
 
-		if aerr, ok := err.(awserr.Error); !ok || aerr.Code() != "BadRequestException" {
+		if _, ok := err.(*types.BadRequestException); !ok {
 			break
 		}
 	}
@@ -212,52 +212,52 @@ func (c *Client) Ping(terminate chan os.Signal) (err error) {
 	return err
 }
 
-func makeParams(params map[string]interface{}) []rdsdata.SqlParameter {
+func makeParams(params map[string]interface{}) []types.SqlParameter {
 	if len(params) == 0 {
 		return nil
 	}
 
-	plist := make([]rdsdata.SqlParameter, 0, len(params))
+	plist := make([]types.SqlParameter, 0, len(params))
 
 	for k, v := range params {
-		var field rdsdata.Field
+		var field types.Field
 
 		switch t := v.(type) {
 		case nil:
-			field.IsNull = aws.Bool(true)
+			field = &types.FieldMemberIsNull{Value: true}
 
 		case bool:
-			field.BooleanValue = aws.Bool(t)
+			field = &types.FieldMemberBooleanValue{Value: t}
 
 		case string:
-			field.StringValue = aws.String(t)
+			field = &types.FieldMemberStringValue{Value: t}
 
 		case int:
-			field.LongValue = aws.Int64(int64(t))
+			field = &types.FieldMemberLongValue{Value: int64(t)}
 
 		case int8:
-			field.LongValue = aws.Int64(int64(t))
+			field = &types.FieldMemberLongValue{Value: int64(t)}
 
 		case int16:
-			field.LongValue = aws.Int64(int64(t))
+			field = &types.FieldMemberLongValue{Value: int64(t)}
 
 		case int64:
-			field.LongValue = aws.Int64(t)
+			field = &types.FieldMemberLongValue{Value: t}
 
 		case float32:
-			field.DoubleValue = aws.Float64(float64(t))
+			field = &types.FieldMemberDoubleValue{Value: float64(t)}
 
 		case float64:
-			field.DoubleValue = aws.Float64(t)
+			field = &types.FieldMemberDoubleValue{Value: t}
 
 		case time.Time:
-			field.StringValue = aws.String(t.Format("'2006-01-02 15:04:05'"))
+			field = &types.FieldMemberStringValue{Value: t.Format("'2006-01-02 15:04:05'")}
 
 		default:
 			log.Fatalf("unsupported parameter type %T: %#v", t, t)
 		}
 
-		plist = append(plist, rdsdata.SqlParameter{Name: aws.String(k), Value: &field})
+		plist = append(plist, types.SqlParameter{Name: aws.String(k), Value: field})
 	}
 
 	return plist
