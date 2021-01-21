@@ -291,7 +291,7 @@ func main() {
 
 		if dberr != nil {
 			fmt.Println(dberr)
-			fmt.Println("STMT:", stmt)
+			fmt.Printf("STMT: %q\n", stmt)
 
 			if script { // for scripts, break at first error
 				break
