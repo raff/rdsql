@@ -25,6 +25,8 @@ func GetAWSConfig(profile string, debug bool) aws.Config {
 		configs = append(configs, config.WithSharedConfigProfile(profile))
 	}
 
+        configs = append(configs, config.WithLogConfigurationWarnings(debug))
+
 	awscfg, err := config.LoadDefaultConfig(context.TODO(), configs...)
 	if err != nil {
 		log.Fatalf("AWS configuration: %v", err)
