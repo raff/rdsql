@@ -9,9 +9,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 )
 
+var SQLReaderBuffer = 10
+
 // SQLReader returns a "list" of results from the specified queury
 func SQLReader(db *Client, query string) chan string {
-	ch := make(chan string, 10)
+	ch := make(chan string, SQLReaderBuffer)
 
 	results, err := db.ExecuteStatement(query, nil, "", nil)
 	if err != nil {
@@ -21,6 +23,42 @@ func SQLReader(db *Client, query string) chan string {
 
 	go func() {
 		putResults(results, ch)
+		close(ch)
+	}()
+
+	return ch
+}
+
+// SQLReaderLoop returns a "list" of results from the specified queury.
+// It will execute the query in a loop until there are no more results.
+func SQLReaderLoop(db *Client, query string) chan string {
+	if err := db.Ping(nil); err != nil {
+		log.Printf("Cannot connect to database: %v", err)
+		return nil
+	}
+
+	ch := make(chan string, SQLReaderBuffer)
+
+	go func() {
+		for {
+			results, err := db.ExecuteStatement(query, nil, "", nil)
+			if err != nil {
+				log.Printf("Query error: %s in %q", err.Error(), query)
+				break
+			}
+
+			if len(results.Records) == 0 {
+				break
+			}
+
+			putResults(results, ch)
+
+			if err := db.Ping(nil); err != nil {
+				log.Printf("Cannot connect to database: %v", err)
+				break
+			}
+		}
+
 		close(ch)
 	}()
 
