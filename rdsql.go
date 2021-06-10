@@ -17,6 +17,7 @@ import (
 )
 
 var PingRetries = 5
+var Verbose = true
 
 // GetAWSConfig return an aws.Config profile
 func GetAWSConfig(profile string, debug bool) aws.Config {
@@ -25,7 +26,7 @@ func GetAWSConfig(profile string, debug bool) aws.Config {
 		configs = append(configs, config.WithSharedConfigProfile(profile))
 	}
 
-        configs = append(configs, config.WithLogConfigurationWarnings(debug))
+	configs = append(configs, config.WithLogConfigurationWarnings(debug))
 
 	awscfg, err := config.LoadDefaultConfig(context.TODO(), configs...)
 	if err != nil {
@@ -120,7 +121,9 @@ func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string
 
 		case <-ctx.Done():
 			if err := ctx.Err(); err != nil && err != context.Canceled {
-				log.Println("context error:", err)
+				if Verbose {
+					log.Println("context error:", err)
+				}
 			}
 		}
 	}()
@@ -198,9 +201,15 @@ func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, tr
 func (c *Client) Ping(terminate chan os.Signal) (err error) {
 	for i := 0; i < PingRetries; i++ {
 		if i > 0 {
-			// log.Println(err)
+			// if Verbose {
+			//  log.Println(err)
+			// }
+
 			time.Sleep(time.Second)
-			log.Println("RETRY", i)
+
+			if Verbose {
+				log.Println("RETRY", i)
+			}
 		}
 
 		_, err = c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
@@ -209,6 +218,10 @@ func (c *Client) Ping(terminate chan os.Signal) (err error) {
 		if _, ok := err.(*types.BadRequestException); !ok {
 			break
 		}
+	}
+
+	if err != nil && Verbose {
+		log.Printf("ERROR %T - %#v", err, err)
 	}
 
 	return err
@@ -279,7 +292,9 @@ func makeContext(timeout time.Duration, terminate chan os.Signal) (ctx context.C
 
 		case <-ctx.Done():
 			if err := ctx.Err(); err != nil && err != context.Canceled {
-				log.Println("context error:", err)
+				if Verbose {
+					log.Println("context error:", err)
+				}
 			}
 		}
 	}()

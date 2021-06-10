@@ -1,13 +1,13 @@
 package rdsql
 
 import (
-        "fmt"
+	"fmt"
 	"log"
-        "strings"
-        "strconv"
+	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
-        )
+)
 
 // SQLReader returns a "list" of results from the specified queury
 func SQLReader(db *Client, query string) chan string {
