@@ -21,6 +21,7 @@ func SQLReader(db *Client, query string) chan string {
 
 	go func() {
 		putResults(results, ch)
+		close(ch)
 	}()
 
 	return ch
