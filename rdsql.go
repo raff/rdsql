@@ -215,7 +215,11 @@ func (c *Client) Ping(terminate chan os.Signal) (err error) {
 		_, err = c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
 		// assume BadRequestException is because Aurora serverless is restarting and retry
 
-		if _, ok := err.(*types.BadRequestException); !ok {
+		if err == nil {
+			break
+		}
+
+		if !strings.Contains(err.Error(), "BadRequestException") {
 			break
 		}
 	}
