@@ -169,6 +169,11 @@ type ColumnMetadata = types.ColumnMetadata
 // Field is an alias for rdsdata types.Field
 type Field = types.Field
 
+type FieldMemberIsNull = types.FieldMemberIsNull
+type FieldMemberBooleanValue = types.FieldMemberBooleanValue
+type FieldMemberStringValue = types.FieldMemberStringValue
+type FieldMemberLongValue = types.FieldMemberLongValue
+
 // ExecuteStatement executes a SQL statement and return Results
 //
 // parameters could be passed as :par1, :par2... in the SQL statement
