@@ -31,6 +31,7 @@ var (
 	elapsed     bool
 	debug       bool
 	verbose     bool
+	silent      bool
 
 	keywords = []string{
 		"BEGIN",
@@ -89,19 +90,19 @@ func main() {
 	flag.BoolVar(&elapsed, "elapsed", elapsed, "print elapsed time")
 	flag.BoolVar(&debug, "debug", debug, "enable debugging")
 	flag.BoolVar(&verbose, "verbose", verbose, "log statements before execution")
+	flag.BoolVar(&silent, "silent", silent, "print less output (no column names, no total records")
 
 	flag.IntVar(&rdsql.PingRetries, "wait", rdsql.PingRetries, "how long to wait for initial ping")
 
 	timeout := flag.Duration("timeout", 2*time.Minute, "request timeout")
 	cont := flag.Bool("continue", true, "continue after timeout (for DDL statements)")
-	silent := flag.Bool("silent", false, "print less output (no column names, no total records")
 	trans := flag.Bool("transaction", false, "wrap full session in a remote transaction")
 	fparams := flag.String("params", "", "query parameters (comma separated list of name=value pair)")
 
 	flag.Parse()
 
 	switch tformat {
-	case "csv", "tabs", "table":
+	case "csv", "tabs", "Tabs", "table", "Table":
 		// good
 
 	default:
@@ -173,7 +174,7 @@ func main() {
 			return
 		}
 
-		printResults(res, tformat, *silent)
+		printResults(res, tformat)
 		return
 	}
 
@@ -307,7 +308,7 @@ func main() {
 				break
 			}
 		} else {
-			printResults(res, tformat, *silent)
+			printResults(res, tformat)
 		}
 	}
 }
@@ -324,7 +325,7 @@ func printElapsed(prefix string, print bool) func() {
 	}
 }
 
-func printResults(res rdsql.Results, tformat string, silent bool) {
+func printResults(res rdsql.Results, tformat string) {
 	if debug {
 		if dmesg, err := json.MarshalIndent(res, "", " "); err == nil {
 			fmt.Println("RESULT")
@@ -339,7 +340,7 @@ func printResults(res rdsql.Results, tformat string, silent bool) {
 
 	t := table.NewWriter()
 
-	if tformat == "tabs" {
+	if strings.ToLower(tformat) == "tabs" {
 		t.SetStyle(table.Style{
 			Name: "minimalSyle",
 			Box: table.BoxStyle{
@@ -351,7 +352,7 @@ func printResults(res rdsql.Results, tformat string, silent bool) {
 		})
 	}
 
-	if tformat == "csv" || !silent {
+	if tformat == "csv" || tformat[0] == 'T' || !silent {
 		tr := make(table.Row, len(cols))
 		for i := 0; i < len(cols); i++ {
 			tr[i] = aws.ToString(cols[i].Label)
@@ -480,18 +481,27 @@ func executeCommand(client *rdsql.Client, c string) {
 			} else {
 				delimiter = d[0:1]
 			}
+			if silent {
+				return
+			}
 		}
 		fmt.Println("delimiter", delimiter)
 
 	case strings.HasPrefix(c, `\e`): // elapsed [bool]
 		if len(params) > 0 {
 			elapsed, _ = strconv.ParseBool(params[0])
+			if silent {
+				return
+			}
 		}
 		fmt.Println("elapsed", elapsed)
 
 	case strings.HasPrefix(c, `\t`): // timeout [duration]
 		if len(params) > 0 {
 			client.Timeout, _ = time.ParseDuration(params[0])
+			if silent {
+				return
+			}
 		}
 		fmt.Println("timeout", client.Timeout)
 
@@ -501,6 +511,9 @@ func executeCommand(client *rdsql.Client, c string) {
 				params[0] = u
 			}
 			client.Database = params[0]
+			if silent {
+				return
+			}
 		}
 		fmt.Println("use", client.Database)
 
@@ -513,11 +526,14 @@ func executeCommand(client *rdsql.Client, c string) {
 	case strings.HasPrefix(c, `\f`): // format [output format]
 		if len(params) > 0 {
 			switch params[0] {
-			case "csv", "tabs", "table":
+			case "csv", "tabs", "Tabs", "table", "Table":
 				tformat = params[0]
 
 			default:
 				fmt.Println("Invalid output format: %v", params[0])
+			}
+			if silent {
+				return
 			}
 		}
 		fmt.Println("format", tformat)
