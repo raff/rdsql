@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 
+	"github.com/jedib0t/go-pretty/table"
 	"github.com/peterh/liner"
 	"github.com/raff/rdsql"
 )
@@ -27,6 +27,7 @@ var (
 	dbName      = os.Getenv("RDS_DATABASE")
 	profile     = os.Getenv("RDS_PROFILE")
 	delimiter   = ""
+	tformat     = "table"
 	elapsed     bool
 	debug       bool
 	verbose     bool
@@ -84,6 +85,7 @@ func main() {
 	flag.StringVar(&dbName, "database", dbName, "database")
 	flag.StringVar(&profile, "profile", profile, "AWS profile")
 	flag.StringVar(&delimiter, "delimiter", delimiter, "Statement delimiter")
+	flag.StringVar(&tformat, "format", tformat, "output format (tabs, table, csv)")
 	flag.BoolVar(&elapsed, "elapsed", elapsed, "print elapsed time")
 	flag.BoolVar(&debug, "debug", debug, "enable debugging")
 	flag.BoolVar(&verbose, "verbose", verbose, "log statements before execution")
@@ -92,12 +94,19 @@ func main() {
 
 	timeout := flag.Duration("timeout", 2*time.Minute, "request timeout")
 	cont := flag.Bool("continue", true, "continue after timeout (for DDL statements)")
-	csv := flag.Bool("csv", false, "print output as csv")
 	silent := flag.Bool("silent", false, "print less output (no column names, no total records")
 	trans := flag.Bool("transaction", false, "wrap full session in a remote transaction")
 	fparams := flag.String("params", "", "query parameters (comma separated list of name=value pair)")
 
 	flag.Parse()
+
+	switch tformat {
+	case "csv", "tabs", "table":
+		// good
+
+	default:
+		log.Fatalf("Invalid output format: %v", tformat)
+	}
 
 	awscfg := rdsql.GetAWSConfig(profile, debug)
 	client := rdsql.ClientWithOptions(awscfg, resourceArn, secretArn, dbName)
@@ -164,7 +173,7 @@ func main() {
 			return
 		}
 
-		printResults(res, *csv, *silent)
+		printResults(res, tformat, *silent)
 		return
 	}
 
@@ -298,7 +307,7 @@ func main() {
 				break
 			}
 		} else {
-			printResults(res, *csv, *silent)
+			printResults(res, tformat, *silent)
 		}
 	}
 }
@@ -315,13 +324,7 @@ func printElapsed(prefix string, print bool) func() {
 	}
 }
 
-func printResults(res rdsql.Results, asCsv, silent bool) {
-	var cw *csv.Writer
-	if asCsv {
-		cw = csv.NewWriter(os.Stdout)
-		defer cw.Flush()
-	}
-
+func printResults(res rdsql.Results, tformat string, silent bool) {
 	if debug {
 		if dmesg, err := json.MarshalIndent(res, "", " "); err == nil {
 			fmt.Println("RESULT")
@@ -334,46 +337,43 @@ func printResults(res rdsql.Results, asCsv, silent bool) {
 		return
 	}
 
-	csvRecord := make([]string, len(cols))
-	for i := 0; i < len(cols); i++ {
-		label := aws.ToString(cols[i].Label)
+	t := table.NewWriter()
 
-		if asCsv {
-			csvRecord[i] = label
-		} else if !silent {
-			if i != 0 {
-				fmt.Print("\t")
-			}
-			fmt.Print(label)
-		}
+	if tformat == "tabs" {
+		t.SetStyle(table.Style{
+			Name: "minimalSyle",
+			Box: table.BoxStyle{
+				MiddleVertical: " ",
+			},
+			Options: table.Options{
+				SeparateColumns: true,
+			},
+		})
 	}
 
-	if asCsv {
-		cw.Write(csvRecord)
-	} else if !silent {
-		fmt.Println()
+	if tformat == "csv" || !silent {
+		tr := make(table.Row, len(cols))
+		for i := 0; i < len(cols); i++ {
+			tr[i] = aws.ToString(cols[i].Label)
+		}
+
+		t.AppendHeader(tr)
 	}
 
 	for _, row := range res.Records {
+		tr := make(table.Row, len(cols))
+
 		for i, r := range row {
-			v := format(r)
-
-			if asCsv {
-				csvRecord[i] = v
-			} else {
-				if i != 0 {
-					fmt.Print("\t")
-				}
-				fmt.Print(v)
-			}
+			tr[i] = format(r)
 		}
 
-		if asCsv {
-			cw.Write(csvRecord)
-		} else {
-			fmt.Println()
-		}
+		t.AppendRow(tr)
+	}
 
+	if tformat == "csv" {
+		fmt.Println(t.RenderCSV())
+	} else {
+		fmt.Println(t.Render())
 	}
 
 	if !silent {
@@ -455,6 +455,7 @@ elapsed   (\e) Enable/disable elapsed time
 timeout   (\t) Set request timeout
 use       (\u) Use specified database
 verbose   (\v) Enable/disable verbose mode
+format    (\f) Set output format (tabs, table, csv)
 `
 
 func executeCommand(client *rdsql.Client, c string) {
@@ -508,6 +509,18 @@ func executeCommand(client *rdsql.Client, c string) {
 			verbose, _ = strconv.ParseBool(params[0])
 		}
 		fmt.Println("verbose", verbose)
+
+	case strings.HasPrefix(c, `\f`): // format [output format]
+		if len(params) > 0 {
+			switch params[0] {
+			case "csv", "tabs", "table":
+				tformat = params[0]
+
+			default:
+				fmt.Println("Invalid output format: %v", params[0])
+			}
+		}
+		fmt.Println("format", tformat)
 
 	default:
 		fmt.Printf("unknown command %v\n", c)
