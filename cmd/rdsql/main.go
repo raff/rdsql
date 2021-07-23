@@ -457,10 +457,12 @@ timeout   (\t) Set request timeout
 use       (\u) Use specified database
 verbose   (\v) Enable/disable verbose mode
 format    (\f) Set output format (tabs, table, csv)
+format    (\E) Echo text
 `
 
-func executeCommand(client *rdsql.Client, c string) {
-	params := strings.Fields(c)
+func executeCommand(client *rdsql.Client, cmd string) {
+	var c string
+	params := strings.Fields(cmd)
 	c, params = params[0], params[1:]
 
 	switch {
@@ -537,6 +539,13 @@ func executeCommand(client *rdsql.Client, c string) {
 			}
 		}
 		fmt.Println("format", tformat)
+	case strings.HasPrefix(c, `\E`): // echo [text]
+		if len(cmd) > 3 {
+			cmd = cmd[3:]
+		} else {
+			cmd = ""
+		}
+		fmt.Println(cmd)
 
 	default:
 		fmt.Printf("unknown command %v\n", c)
