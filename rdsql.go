@@ -17,6 +17,7 @@ import (
 )
 
 var PingRetries = 5
+var Verbose = true
 
 // GetAWSConfig return an aws.Config profile
 func GetAWSConfig(profile string, debug bool) aws.Config {
@@ -24,6 +25,8 @@ func GetAWSConfig(profile string, debug bool) aws.Config {
 	if profile != "" {
 		configs = append(configs, config.WithSharedConfigProfile(profile))
 	}
+
+	configs = append(configs, config.WithLogConfigurationWarnings(debug))
 
 	awscfg, err := config.LoadDefaultConfig(context.TODO(), configs...)
 	if err != nil {
@@ -118,7 +121,9 @@ func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string
 
 		case <-ctx.Done():
 			if err := ctx.Err(); err != nil && err != context.Canceled {
-				log.Println("context error:", err)
+				if Verbose {
+					log.Println("context error:", err)
+				}
 			}
 		}
 	}()
@@ -172,6 +177,11 @@ type ColumnMetadata = types.ColumnMetadata
 // Field is an alias for rdsdata types.Field
 type Field = types.Field
 
+type FieldMemberIsNull = types.FieldMemberIsNull
+type FieldMemberBooleanValue = types.FieldMemberBooleanValue
+type FieldMemberStringValue = types.FieldMemberStringValue
+type FieldMemberLongValue = types.FieldMemberLongValue
+
 // ExecuteStatement executes a SQL statement and return Results
 //
 // parameters could be passed as :par1, :par2... in the SQL statement
@@ -203,22 +213,32 @@ func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, tr
 // Ping verifies the connection to the database is still alive.
 func (c *Client) Ping(terminate chan os.Signal) (err error) {
 	for i := 0; i < PingRetries; i++ {
-		log.Println("RETRY", i)
-
 		if i > 0 {
-			// log.Println(err)
+			// if Verbose {
+			//  log.Println(err)
+			// }
+
 			time.Sleep(time.Second)
+
+			if Verbose {
+				log.Println("RETRY", i)
+			}
 		}
 
 		_, err = c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
 		// assume BadRequestException is because Aurora serverless is restarting and retry
 
-		if _, ok := err.(*types.BadRequestException); !ok {
-			if err != nil {
-				log.Printf("PING error retry=%v/%v %#v", i, PingRetries, err)
-			}
+		if err == nil {
 			break
 		}
+
+		if !strings.Contains(err.Error(), "BadRequestException") {
+			break
+		}
+	}
+
+	if err != nil && Verbose {
+		log.Printf("ERROR %T - %#v", err, err)
 	}
 
 	return err
@@ -289,7 +309,9 @@ func makeContext(timeout time.Duration, terminate chan os.Signal) (ctx context.C
 
 		case <-ctx.Done():
 			if err := ctx.Err(); err != nil && err != context.Canceled {
-				log.Println("context error:", err)
+				if Verbose {
+					log.Println("context error:", err)
+				}
 			}
 		}
 	}()
