@@ -181,17 +181,25 @@ func main() {
 	line := liner.NewLiner()
 	defer line.Close()
 
-	if f, err := os.Open(historyfile); err == nil {
-		line.ReadHistory(f)
-		f.Close()
+	var inputRedirected bool
+
+	if _, err := liner.TerminalMode(); err != nil {
+		inputRedirected = true
 	}
 
-	defer func() {
-		if f, err := os.Create(historyfile); err == nil {
-			line.WriteHistory(f)
+	if !inputRedirected {
+		if f, err := os.Open(historyfile); err == nil {
+			line.ReadHistory(f)
 			f.Close()
 		}
-	}()
+
+		defer func() {
+			if f, err := os.Create(historyfile); err == nil {
+				line.WriteHistory(f)
+				f.Close()
+			}
+		}()
+	}
 
 	line.SetWordCompleter(func(line string, pos int) (head string, completions []string, tail string) {
 		head = line[:pos]
@@ -285,7 +293,9 @@ func main() {
 			continue
 		}
 
-		line.AppendHistory(stmt)
+		if !inputRedirected {
+			line.AppendHistory(stmt)
+		}
 
 		if strings.HasPrefix(stmt, `\`) {
 			executeCommand(client, stmt)
