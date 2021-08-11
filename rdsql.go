@@ -99,11 +99,11 @@ func (c *Client) BeginTransaction(terminate chan os.Signal) (string, error) {
 		SecretArn:   aws.String(c.SecretArn),
 	})
 
-	if err != nil {
+	if res == nil {
 		return "", err
 	}
 
-	return aws.ToString(res.TransactionId), nil
+	return aws.ToString(res.TransactionId), err
 }
 
 // CommitTransaction executes rdsdata CommitTransaction
@@ -129,6 +129,10 @@ func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string
 		TransactionId: aws.String(tid),
 	})
 
+	if res == nil {
+		return "", err
+	}
+
 	return aws.ToString(res.TransactionStatus), err
 }
 
@@ -142,6 +146,10 @@ func (c *Client) RollbackTransaction(tid string, terminate chan os.Signal) (stri
 		SecretArn:     aws.String(c.SecretArn),
 		TransactionId: aws.String(tid),
 	})
+
+	if res == nil {
+		return "", err
+	}
 
 	return aws.ToString(res.TransactionStatus), err
 }
@@ -195,16 +203,20 @@ func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, tr
 // Ping verifies the connection to the database is still alive.
 func (c *Client) Ping(terminate chan os.Signal) (err error) {
 	for i := 0; i < PingRetries; i++ {
+		log.Println("RETRY", i)
+
 		if i > 0 {
 			// log.Println(err)
 			time.Sleep(time.Second)
-			log.Println("RETRY", i)
 		}
 
 		_, err = c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
 		// assume BadRequestException is because Aurora serverless is restarting and retry
 
 		if _, ok := err.(*types.BadRequestException); !ok {
+			if err != nil {
+				log.Printf("PING error retry=%v/%v %#v", i, PingRetries, err)
+			}
 			break
 		}
 	}
