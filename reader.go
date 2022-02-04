@@ -74,6 +74,8 @@ func SQLReaderLoop(db *Client, query, first string) chan string {
 				q = strings.ReplaceAll(q, pattern, last)
 			}
 
+			//log.Println("QUERY:", q)
+
 			results, err := db.ExecuteStatement(q, nil, "", nil)
 			if err != nil {
 				log.Printf("Query error: %s in %q", err.Error(), query)

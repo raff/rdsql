@@ -21,6 +21,10 @@ import (
 	"github.com/raff/rdsql"
 )
 
+const (
+	stdoutName = "<stdout>"
+)
+
 var (
 	resourceArn = os.Getenv("RDS_RESOURCE")
 	secretArn   = os.Getenv("RDS_SECRET")
@@ -32,6 +36,8 @@ var (
 	debug       bool
 	verbose     bool
 	silent      bool
+	output      = os.Stdout
+	outputName  = stdoutName
 
 	keywords = []string{
 		"BEGIN",
@@ -382,9 +388,9 @@ func printResults(res rdsql.Results, tformat string) {
 	}
 
 	if tformat == "csv" {
-		fmt.Println(t.RenderCSV())
+		fmt.Fprintln(output, t.RenderCSV())
 	} else {
-		fmt.Println(t.Render())
+		fmt.Fprintln(output, t.Render())
 	}
 
 	if !silent {
@@ -467,7 +473,8 @@ timeout   (\t) Set request timeout
 use       (\u) Use specified database
 verbose   (\v) Enable/disable verbose mode
 format    (\f) Set output format (tabs, table, csv)
-format    (\E) Echo text
+echo      (\E) Echo text
+output    (\o) output to file
 `
 
 func executeCommand(client *rdsql.Client, cmd string) {
@@ -556,6 +563,31 @@ func executeCommand(client *rdsql.Client, cmd string) {
 			cmd = ""
 		}
 		fmt.Println(cmd)
+
+	case strings.HasPrefix(c, `\o`): // output [file|-]
+		if len(params) > 0 {
+			if params[0] == "-" {
+				if output != os.Stdout {
+					output.Sync()
+					output.Close()
+				}
+
+				output = os.Stdout
+				outputName = stdoutName
+			} else if f, err := os.Create(params[0]); err != nil {
+				fmt.Println(err)
+			} else {
+				if output != os.Stdout {
+					output.Sync()
+					output.Close()
+				}
+
+				output = f
+				outputName = params[0]
+			}
+		}
+
+		fmt.Println("output", outputName)
 
 	default:
 		fmt.Printf("unknown command %v\n", c)
