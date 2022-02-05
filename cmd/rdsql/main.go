@@ -349,6 +349,17 @@ func printResults(res rdsql.Results, tformat string) {
 		}
 	}
 
+	defer func() {
+		if !silent {
+			nr := res.NumberOfRecordsUpdated
+			if nr > 0 {
+				fmt.Println("Updated", nr, "records")
+			} else {
+				fmt.Println("\nTotal", len(res.Records))
+			}
+		}
+	}()
+
 	cols := res.ColumnMetadata
 	if len(cols) == 0 {
 		return
@@ -391,15 +402,6 @@ func printResults(res rdsql.Results, tformat string) {
 		fmt.Fprintln(output, t.RenderCSV())
 	} else {
 		fmt.Fprintln(output, t.Render())
-	}
-
-	if !silent {
-		nr := res.NumberOfRecordsUpdated
-		if nr > 0 {
-			fmt.Println("Updated", nr, "records")
-		} else {
-			fmt.Println("\nTotal", len(res.Records))
-		}
 	}
 }
 
