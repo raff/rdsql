@@ -160,7 +160,7 @@ func main() {
 		shouldPrint()
 
 		if err != nil {
-			fmt.Println("BEGIN TRANSACTION:", err)
+			log.Println("BEGIN TRANSACTION:", err)
 			return
 		}
 
@@ -171,9 +171,9 @@ func main() {
 			shouldPrint := printElapsed("END TRANSACTION:", elapsed)
 
 			if res, err := client.EndTransaction(transactionId, dberr == nil, c); err != nil {
-				fmt.Println("END TRANSACTION:", err)
+				log.Println("END TRANSACTION:", err)
 			} else {
-				fmt.Println("END TRANSACTION:", res)
+				log.Println("END TRANSACTION:", res)
 			}
 
 			shouldPrint()
@@ -188,8 +188,8 @@ func main() {
 		shouldPrint()
 
 		if dberr != nil {
-			fmt.Println(dberr)
-			fmt.Println("STMT:", stmt)
+			log.Println(dberr)
+			log.Println("STMT:", stmt)
 			return
 		}
 
