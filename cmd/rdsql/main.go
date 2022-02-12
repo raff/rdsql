@@ -58,7 +58,9 @@ var (
 		"AS",
 		"AND",
 		"OR",
+		"LIKE",
 		"INSERT",
+		"IGNORE",
 		"INTO",
 		"VALUES",
 		"UPDATE",
@@ -73,6 +75,17 @@ var (
 		"DESCRIBE",
 		"SHOW",
 		"TABLES",
+		"INDEX",
+		"JOIN",
+		"LEFT",
+		"RIGHT",
+		"OUTER",
+		"INNER",
+		"ON",
+		"GROUP BY",
+		"HAVING",
+		"UNION",
+		"ALL",
 	}
 
 	historyfile = ".rdsql"
