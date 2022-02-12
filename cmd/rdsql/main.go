@@ -330,8 +330,8 @@ func main() {
 		shouldPrint()
 
 		if dberr != nil {
-			fmt.Println(dberr)
-			fmt.Printf("STMT: %q\n", stmt)
+			log.Println(dberr)
+			log.Printf("STMT: %q\n", stmt)
 
 			if script { // for scripts, break at first error
 				break
@@ -357,8 +357,8 @@ func printElapsed(prefix string, print bool) func() {
 func printResults(res rdsql.Results, tformat string) {
 	if debug {
 		if dmesg, err := json.MarshalIndent(res, "", " "); err == nil {
-			fmt.Println("RESULT")
-			fmt.Println(string(dmesg))
+			log.Println("RESULT")
+			log.Println(string(dmesg))
 		}
 	}
 
