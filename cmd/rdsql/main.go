@@ -184,7 +184,7 @@ func main() {
 		stmt := strings.Join(flag.Args(), " ")
 
 		shouldPrint := printElapsed("EXEC:", elapsed)
-		res, dberr = client.ExecuteStatement(stmt, params, transactionId, c)
+		res, dberr = client.ExecuteStatement(stmt, rdsql.ParamMap(params), transactionId, c)
 		shouldPrint()
 
 		if dberr != nil {
@@ -326,7 +326,7 @@ func main() {
 		}
 
 		shouldPrint := printElapsed("EXEC:", elapsed)
-		res, dberr = client.ExecuteStatement(stmt, params, transactionId, c)
+		res, dberr = client.ExecuteStatement(stmt, rdsql.ParamMap(params), transactionId, c)
 		shouldPrint()
 
 		if dberr != nil {

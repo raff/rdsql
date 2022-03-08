@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,7 +62,7 @@ func ClientWithURI(uri string, debug bool) *Client {
 	}
 
 	parts := strings.Split(uri[6:], ";")
-	if len(parts) != 3 && len(parts) != 4 {
+	if len(parts) < 3 {
 		log.Fatal("Not a valid rdsql URN")
 	}
 
@@ -70,7 +71,17 @@ func ClientWithURI(uri string, debug bool) *Client {
 	}
 
 	config := GetAWSConfig(parts[0], debug)
-	return ClientWithOptions(config, parts[1], parts[2], parts[3])
+	client := ClientWithOptions(config, parts[1], parts[2], parts[3])
+
+	for _, p := range parts[3:] {
+		if strings.HasPrefix(p, "timeout=") {
+			client.Timeout, _ = time.ParseDuration(p[8:])
+		} else if strings.HasPrefix(p, "continue=") {
+			client.Continue, _ = strconv.ParseBool(p[9:])
+		}
+	}
+
+	return client
 }
 
 // ClientWithOptions creates an instance of Client given a list of options
@@ -83,6 +94,8 @@ func ClientWithOptions(config aws.Config, res, secret, db string) *Client {
 		log.Fatal("missing secret ARN")
 	}
 
+	//log.Println("res:", res, "secret:", secret, "db:", db)
+
 	return &Client{
 		client:      rdsdata.NewFromConfig(config),
 		ResourceArn: res,
@@ -93,7 +106,7 @@ func ClientWithOptions(config aws.Config, res, secret, db string) *Client {
 
 // BeginTransaction executes rdsdata BeginTransaction
 func (c *Client) BeginTransaction(terminate chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(c.Timeout, terminate)
+	ctx, cancel := ContextWithSignal(c.Timeout, terminate)
 	defer cancel()
 
 	res, err := c.client.BeginTransaction(ctx, &rdsdata.BeginTransactionInput{
@@ -111,22 +124,14 @@ func (c *Client) BeginTransaction(terminate chan os.Signal) (string, error) {
 
 // CommitTransaction executes rdsdata CommitTransaction
 func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(c.Timeout, terminate)
+	ctx, cancel := ContextWithSignal(c.Timeout, terminate)
 	defer cancel()
 
-	go func() {
-		select {
-		case <-terminate:
-			cancel()
+	return c.CommitTransactionContext(ctx, tid)
+}
 
-		case <-ctx.Done():
-			if err := ctx.Err(); err != nil && err != context.Canceled {
-				if Verbose {
-					log.Println("context error:", err)
-				}
-			}
-		}
-	}()
+// CommitTransaction executes rdsdata CommitTransaction
+func (c *Client) CommitTransactionContext(ctx context.Context, tid string) (string, error) {
 
 	res, err := c.client.CommitTransaction(ctx, &rdsdata.CommitTransactionInput{
 		ResourceArn:   aws.String(c.ResourceArn),
@@ -143,9 +148,14 @@ func (c *Client) CommitTransaction(tid string, terminate chan os.Signal) (string
 
 // RollbackTransaction executes rdsdata RollbackTransaction
 func (c *Client) RollbackTransaction(tid string, terminate chan os.Signal) (string, error) {
-	ctx, cancel := makeContext(c.Timeout, terminate)
+	ctx, cancel := ContextWithSignal(c.Timeout, terminate)
 	defer cancel()
 
+	return c.RollbackTransactionContext(ctx, tid)
+}
+
+// RollbackTransactionContext executes rdsdata RollbackTransaction
+func (c *Client) RollbackTransactionContext(ctx context.Context, tid string) (string, error) {
 	res, err := c.client.RollbackTransaction(ctx, &rdsdata.RollbackTransactionInput{
 		ResourceArn:   aws.String(c.ResourceArn),
 		SecretArn:     aws.String(c.SecretArn),
@@ -168,6 +178,18 @@ func (c *Client) EndTransaction(tid string, commit bool, terminate chan os.Signa
 	return c.RollbackTransaction(tid, terminate)
 }
 
+// EndTransaction executes either a commit or a rollback request
+func (c *Client) EndTransactionContext(ctx context.Context, tid string, commit bool) (string, error) {
+	if commit {
+		return c.CommitTransactionContext(ctx, tid)
+	}
+
+	return c.RollbackTransactionContext(ctx, tid)
+}
+
+// Parameter is an alias for types.SqlParameter
+type Parameter = types.SqlParameter
+
 // Results is an alias for *rdsdata.ExecuteStatementOutput
 type Results = *rdsdata.ExecuteStatementOutput
 
@@ -185,33 +207,38 @@ type FieldMemberLongValue = types.FieldMemberLongValue
 // ExecuteStatement executes a SQL statement and return Results
 //
 // parameters could be passed as :par1, :par2... in the SQL statement
-// with associated parameter list in the request
-func (c *Client) ExecuteStatement(stmt string, params map[string]interface{}, transactionId string, terminate chan os.Signal) (Results, error) {
-	ctx, cancel := makeContext(c.Timeout, terminate)
+// with associated parameter mapping in the request
+func (c *Client) ExecuteStatement(stmt string, params []Parameter, transactionId string, terminate chan os.Signal) (Results, error) {
+	ctx, cancel := ContextWithSignal(c.Timeout, terminate)
 	defer cancel()
 
-	res, err := c.client.ExecuteStatement(ctx, &rdsdata.ExecuteStatementInput{
+	return c.ExecuteStatementContext(ctx, stmt, params, transactionId)
+}
+
+func (c *Client) ExecuteStatementContext(ctx context.Context, stmt string, params []Parameter, transactionId string) (Results, error) {
+	return c.client.ExecuteStatement(ctx, &rdsdata.ExecuteStatementInput{
 		Database:              StringOrNil(c.Database),
 		ResourceArn:           aws.String(c.ResourceArn),
 		SecretArn:             aws.String(c.SecretArn),
 		Sql:                   aws.String(stmt),
-		Parameters:            makeParams(params),
+		Parameters:            params,
 		IncludeResultMetadata: true,
 		TransactionId:         StringOrNil(transactionId),
 		ContinueAfterTimeout:  c.Continue,
 		// Schema
 		// ResultSetOptions
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
 }
 
 // Ping verifies the connection to the database is still alive.
 func (c *Client) Ping(terminate chan os.Signal) (err error) {
+	ctx, cancel := ContextWithSignal(c.Timeout, terminate)
+	defer cancel()
+
+	return c.PingContext(ctx)
+}
+
+func (c *Client) PingContext(ctx context.Context) (err error) {
 	for i := 0; i < PingRetries; i++ {
 		if i > 0 {
 			// if Verbose {
@@ -225,7 +252,7 @@ func (c *Client) Ping(terminate chan os.Signal) (err error) {
 			}
 		}
 
-		_, err = c.ExecuteStatement("SELECT CURRENT_TIMESTAMP", nil, "", terminate)
+		_, err = c.ExecuteStatementContext(ctx, "SELECT CURRENT_TIMESTAMP", nil, "")
 		// assume BadRequestException is because Aurora serverless is restarting and retry
 
 		if err == nil {
@@ -244,7 +271,7 @@ func (c *Client) Ping(terminate chan os.Signal) (err error) {
 	return err
 }
 
-func makeParams(params map[string]interface{}) []types.SqlParameter {
+func ParamMap(params map[string]interface{}) []Parameter {
 	if len(params) == 0 {
 		return nil
 	}
@@ -295,7 +322,7 @@ func makeParams(params map[string]interface{}) []types.SqlParameter {
 	return plist
 }
 
-func makeContext(timeout time.Duration, terminate chan os.Signal) (ctx context.Context, cancel context.CancelFunc) {
+func ContextWithSignal(timeout time.Duration, terminate chan os.Signal) (ctx context.Context, cancel context.CancelFunc) {
 	if timeout > 0 {
 		ctx, cancel = context.WithTimeout(context.TODO(), timeout)
 	} else {
