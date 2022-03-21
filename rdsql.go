@@ -259,7 +259,25 @@ func (c *Client) PingContext(ctx context.Context) (err error) {
 			break
 		}
 
-		if !strings.Contains(err.Error(), "BadRequestException") {
+		errstring := err.Error()
+
+		if !strings.Contains(errstring, "BadRequestException") {
+			break
+		}
+
+		if strings.Contains(errstring, "calling account") {
+			break
+		}
+
+		if strings.Contains(errstring, "fetch secret") {
+			break
+		}
+
+		if strings.Contains(errstring, "Endpoint is not enabled") {
+			break
+		}
+
+		if strings.Contains(errstring, "Unknown database") {
 			break
 		}
 	}
