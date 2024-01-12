@@ -20,6 +20,7 @@ import (
 
 var PingRetries = 5
 var QueryRetries = 5
+var PingRetryPrefix = "PING RETRY"
 var Verbose = true
 
 // GetAWSConfig return an aws.Config profile
@@ -254,7 +255,7 @@ func (c *Client) PingContext(ctx context.Context) (err error) {
 			time.Sleep(time.Second)
 
 			if Verbose {
-				log.Println("RETRY", i)
+				log.Println(PingRetryPrefix, i)
 			}
 		}
 
@@ -267,7 +268,7 @@ func (c *Client) PingContext(ctx context.Context) (err error) {
 
 		errstring := err.Error()
 
-		if !strings.Contains(errstring, "BadRequestException") {
+		if !strings.Contains(errstring, "BadRequestException") && !strings.Contains(errstring, "StatementTimeoutException") {
 			break
 		}
 
