@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	"github.com/aws/aws-sdk-go-v2/service/rdsdata/types"
 )
 
 var PingRetries = 5
+var QueryRetries = 5
 var Verbose = true
 
 // GetAWSConfig return an aws.Config profile
@@ -28,6 +30,10 @@ func GetAWSConfig(profile string, debug bool) aws.Config {
 	}
 
 	configs = append(configs, config.WithLogConfigurationWarnings(debug))
+
+	configs = append(configs, config.WithRetryer(func() aws.Retryer {
+		return retry.AddWithMaxAttempts(retry.NewStandard(), QueryRetries)
+	}))
 
 	awscfg, err := config.LoadDefaultConfig(context.TODO(), configs...)
 	if err != nil {

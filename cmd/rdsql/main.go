@@ -112,6 +112,7 @@ func main() {
 	flag.BoolVar(&silent, "silent", silent, "print less output (no column names, no total records")
 
 	flag.IntVar(&rdsql.PingRetries, "wait", rdsql.PingRetries, "how long to wait for initial ping")
+	flag.IntVar(&rdsql.QueryRetries, "retries", rdsql.QueryRetries, "number of query retries")
 
 	timeout := flag.Duration("timeout", 2*time.Minute, "request timeout")
 	cont := flag.Bool("continue", true, "continue after timeout (for DDL statements)")
