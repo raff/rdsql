@@ -111,7 +111,7 @@ func main() {
 	flag.BoolVar(&verbose, "verbose", verbose, "log statements before execution")
 	flag.BoolVar(&silent, "silent", silent, "print less output (no column names, no total records")
 
-	flag.IntVar(&rdsql.PingRetries, "wait", rdsql.PingRetries, "how long to wait for initial ping")
+	flag.IntVar(&rdsql.PingRetries, "wait", 10, "how long to wait for initial ping")
 
 	timeout := flag.Duration("timeout", 2*time.Minute, "request timeout")
 	cont := flag.Bool("continue", true, "continue after timeout (for DDL statements)")
@@ -485,6 +485,7 @@ delimiter (\d) Set statement delimiter
 help      (\h) Display this help
 elapsed   (\e) Enable/disable elapsed time
 timeout   (\t) Set request timeout
+continue  (\c) Continue/stop after timeout
 use       (\u) Use specified database
 verbose   (\v) Enable/disable verbose mode
 format    (\f) Set output format (tabs, table, csv)
@@ -529,6 +530,15 @@ func executeCommand(client *rdsql.Client, cmd string) {
 			}
 		}
 		fmt.Println("elapsed", elapsed)
+
+	case strings.HasPrefix(c, `\c`): // continue [bool]
+		if len(params) > 0 {
+			client.Continue, _ = strconv.ParseBool(params[0])
+			if silent {
+				return
+			}
+		}
+		fmt.Println("continue", client.Continue)
 
 	case strings.HasPrefix(c, `\t`): // timeout [duration]
 		if len(params) > 0 {
